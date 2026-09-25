@@ -1,0 +1,13 @@
+option('prom_install_dir', type: 'string',
+       value: '/homes/ofekdg/prom-dpdk/install-o2-nometa',
+       description: 'Install prefix of the prom-dpdk build to link against (must match the libdpdk.pc found via pkg_config_path)')
+option('prom_build_dir', type: 'string',
+       value: '/homes/ofekdg/prom-dpdk/build-o2-nometa',
+       description: 'prom-dpdk meson build dir holding doca_pipelines_sdk/libdoca_pipelines_meta_rr.a')
+option('doca_sdk_root', type: 'string',
+       value: '/homes/ofekdg/prom-dpdk/doca_pipelines_sdk',
+       description: 'DOCA pipelines SDK root (include/, src/, lib/x86_64-linux-gnu/)')
+option('dpdk_pmd_subdir', type: 'string', value: 'dpdk/pmds-26.0',
+       description: 'PMD plugin subdir under <prom_install_dir>/lib/x86_64-linux-gnu')
+option('enable_doca', type: 'feature', value: 'enabled',
+       description: 'Link the DOCA pipelines SDK (required for --doca-mode meta_rr|esp_rr)')
