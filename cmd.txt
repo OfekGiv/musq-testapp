@@ -1,0 +1,7 @@
+# danger51 - responder
+
+# MUSQ
+scripts/run.sh --lcores 2,4 --doca-mode esp_rr --work fixed:0 --stats-interval 5
+
+# Plain RSS
+scripts/run.sh --lcores 2,4 --doca-mode none --musq-group 0
