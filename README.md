@@ -115,6 +115,15 @@ and becomes ethdev port 0. After `rte_eth_dev_start` the steering pipeline is
 installed for `nb_workers` queues. In `--doca-mode none` the PF goes to EAL as
 `-a <pci>[,mu_sq_log_grp_size=..][,devargs]`.
 
+### Throughput
+
+Measured ceilings of the responder and the requester, what limits each of them,
+and how to reproduce the numbers are in [docs/throughput.md](docs/throughput.md).
+In short: one plain RSS responder core forwards ~33 Mpps at 128 B; the port tops
+out at ~114 Mpps (128 B) without MPRQ and ~157 Mpps with
+`--devargs mprq_en=1,rxqs_min_mprq=1`. Link-level pause must be off on both
+ports (`sudo ethtool -a enp23s0f1np1`) or a slow receiver throttles the sender.
+
 ## Traffic test with TRex
 
 One script, `scripts/trex_run.py`, with configurable rate, frame size and
@@ -196,28 +205,40 @@ Requester options:
 | `--traffic` | `esp` | `esp`: IPv4 proto 50 with SPI + incrementing SN, then the header (for `--doca-mode esp_rr`). `udp`: IPv4/UDP with the header as payload (for `meta_rr` / plain RSS) |
 | `--frame-size` | 92 | bytes on the wire incl. FCS, 64..1518 |
 | `--dst-mac`, `--src-mac` | `f4:20:4d:24:44:86`, port MAC | |
-| `--src-ip`, `--dst-ip` | 1.1.1.1, 2.2.2.2 | |
+| `--src-ip`, `--dst-ip` | 1.1.1.1, 2.2.2.2 | with `--rx-steer flow`/`rss` lcore *i* sends from `src-ip + i` |
 | `--sport`, `--dport` | 1025-1040, 12345 | udp: port or range, cycled per packet (spreads over the DUT's RSS queues) |
 | `--tracker-size` | 1048576 | outstanding-request slots per lcore (power of 2) |
+| `--tx-fill` | `prefill` | `prefill`: a dedicated TX mbuf pool per lcore; the frame template and the lengths are written into every mbuf once at start-up, mbufs are taken with `rte_mempool_get_bulk` (no per-mbuf reset) and only the per-request fields are written per packet (request id, source port / ESP SN, and the destination port / service time only when they vary). `copy`: `rte_pktmbuf_alloc_bulk` + `rte_memcpy` of the whole template per packet (korba behaviour) |
+| `--rx-steer` | `flow` | `flow`: each lcore uses its own source IP and an ingress rte_flow rule (IPv4 dst = that IP → its queue) returns its responses to its own queue. `rss`: per-lcore source IP, plain RSS decides the queue. `none`: one source IP (ESP responses then all land on one queue) |
 
 The requester needs `--doca-mode none --musq-group 0` and therefore the
 `build-nodoca` binary (`run.sh` selects it automatically for `--role requester`).
 
 How matching works: request ids are `[owner lcore : 16 bits][sequence : 48 bits]`;
-the slot is the low bits of the sequence. A response may arrive on any lcore
-(RSS decides), so the receiving lcore looks the id up in the owner's tracker,
-records the RTT in its own histogram and marks the slot done. A request counts as
-**lost** when its slot is reused while still outstanding (after `--tracker-size`
-further requests from that lcore), as **unmatched** when a response carries an id
-that is no longer outstanding (late, duplicate or stale). ESP responses have no
-L4 ports, so RSS puts them all on one queue and one lcore does all the matching;
-that is expected.
+the slot is the low bits of the sequence. With the default `--rx-steer flow` the
+responder's address swap brings every response back to the owner's own queue
+(source IP `src-ip + lcore index`, one rte_flow rule per lcore), so matching is
+local. A response that still arrives on another lcore (`--rx-steer rss|none`,
+or traffic that misses the rules) is looked up in the owner's tracker by the
+receiving lcore, which records the RTT in its own histogram and marks the slot
+done. A request counts as **lost** when its slot is reused while still
+outstanding (after `--tracker-size` further requests from that lcore), as
+**unmatched** when a response carries an id that is no longer outstanding
+(late, duplicate or stale). Without steering, ESP responses have no L4 ports,
+so RSS puts them all on one queue: that lcore then does all the matching and
+caps the whole run at ~7.5 M responses/s, while cross-lcore completions
+cost roughly twice a local one (numbers in [docs/throughput.md](docs/throughput.md)).
 
 Requester output adds per-core rows (Req sent, Resp matched, Resp unmatched, Req
 lost, Batches capped, Non-response RX) and an RTT table (samples, min, mean, p50,
 p90, p99, p99.9, p99.99, max in µs) merged over all lcores and per lcore,
 cumulative since the measurement start (after `--warmup`). CSV rows use scope
 `rtt`.
+
+Requester throughput: one lcore sends ~74 Mpps at 128 B and ~45 Mpps at 512 B;
+two or more lcores reach the PCIe Gen4 x16 limit at 512 B (~55 Mpps / 225 Gbps).
+For the pure-TX recipe (stopped responder, `--dst-mac 02:00:00:00:00:01`), the
+per-lcore breakdown and the matching limits see [docs/throughput.md](docs/throughput.md).
 
 Latency note: with the responder in the default `--tx-mode accumulate`, a
 response waits in the TX buffer until 32 packets are collected or the 100 µs
@@ -249,5 +270,6 @@ src/main.cpp       bring-up order, monitor loop, shutdown
 scripts/run.sh     sudo env -i wrapper with LD_LIBRARY_PATH
 scripts/trex_run.py    TRex burst generator (pps, frame size, duration, esp/udp); runs on danger50, launchable from danger51
 scripts/remote_build.sh  rsync the tree to danger50 and build the no-DOCA binary there
+docs/throughput.md       measured requester/responder throughput, limits and recipes
 third_party/hdr_histogram  HdrHistogram_c core (RTT percentiles)
 ```

@@ -36,6 +36,10 @@ enum class Role { Responder, Requester };
 enum class WorkKind { Fixed, Bimodal, Exp, Header };
 enum class XstatsMode { Filtered, All, Final };
 enum class TrafficKind { Udp, Esp };
+/* Requester: how responses reach the lcore that owns the request. */
+enum class RxSteer { Flow, Rss, None };
+/* Requester: how a request frame is produced from the template. */
+enum class TxFill { Prefill, Copy };
 
 struct WorkSpec {
     WorkKind kind = WorkKind::Fixed;
@@ -80,11 +84,13 @@ struct AppConfig {
     uint16_t frame_size = 92;           /* on the wire incl. FCS */
     std::string dst_mac = "f4:20:4d:24:44:86";
     std::string src_mac;                /* empty = port MAC */
-    std::string src_ip = "1.1.1.1";
+    std::string src_ip = "1.1.1.1";        /* base; flow/rss steer: + worker index per lcore */
     std::string dst_ip = "2.2.2.2";
     uint16_t sport_lo = 1025, sport_hi = 1040;
     uint16_t dport_lo = 12345, dport_hi = 12345;
     uint32_t tracker_size = 1u << 20;   /* outstanding-request slots per lcore, power of 2 */
+    RxSteer rx_steer = RxSteer::Flow;   /* flow: per-lcore src IP + rte_flow dst IP -> owner queue */
+    TxFill tx_fill = TxFill::Prefill;   /* prefill: TX-only pool, template written once per mbuf */
 
     unsigned nb_workers() const { return static_cast<unsigned>(lcores.size()); }
     bool doca_enabled() const { return doca_mode != DocaMode::None; }

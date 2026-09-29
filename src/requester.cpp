@@ -7,19 +7,28 @@
 #include <rte_arp.h>
 #include <rte_ethdev.h>
 #include <rte_ether.h>
+#include <rte_flow.h>
 #include <rte_ip.h>
 #include <rte_malloc.h>
+#include <rte_prefetch.h>
 #include <rte_udp.h>
+
+#include <arpa/inet.h>
 
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 /* Request id layout: [owner worker idx : 16][sequence : 48]. The slot is the
  * low bits of the sequence. */
 static constexpr unsigned ID_SEQ_BITS = 48;
 static constexpr uint64_t ID_SEQ_MASK = (1ULL << ID_SEQ_BITS) - 1;
 static inline uint64_t id_owner(uint64_t id) { return id >> ID_SEQ_BITS; }
+/* Requests ahead of the current one whose tracker slot is prefetched. */
+static constexpr uint64_t SLOT_PREFETCH = 32;
+/* Packets ahead of the current one whose mbuf header and data line are prefetched. */
+static constexpr uint32_t PKT_PREFETCH = 8;
 
 struct alignas(32) RequestSlot {
     std::atomic<uint64_t> id{0};      /* request id currently owning the slot (0 = never used) */
@@ -42,6 +51,9 @@ struct RequestTracker {
     uint16_t l4_off = 0;              /* offset of UDP header / ESP SPI */
     uint16_t next_sport = 0, next_dport = 0;
     uint32_t next_sn = 0;
+    rte_be32_t src_ip = 0;            /* this lcore's source IP (responses come back to it) */
+    struct rte_mempool *tx_pool = nullptr; /* prefill: TX-only pool; copy: the worker's RX pool */
+    int32_t mbuf_data_off = -1;       /* prefill: data - mbuf, identical for every mbuf (-1 unknown, -2 varies) */
 };
 
 /* Service-time sampler in microseconds (same distributions as --work). */
@@ -81,6 +93,7 @@ struct ServiceSampler {
 
 static ServiceSampler g_service;
 static uint64_t g_hz;
+static std::vector<struct rte_flow *> g_steer_flows;
 
 static bool parse_mac(const std::string &s, struct rte_ether_addr *out)
 {
@@ -116,6 +129,12 @@ static int build_template(const AppState &st, WorkerCtx &w, RequestTracker &t)
         APP_LOG_ERR("bad --src-ip/--dst-ip");
         return -1;
     }
+    /* One source IP per lcore: the responder swaps the addresses, so the
+     * response's destination IP identifies the owner (flow steering) or at
+     * least varies the RSS hash (rss). */
+    if (cfg.rx_steer != RxSteer::None)
+        src_ip = rte_cpu_to_be_32(rte_be_to_cpu_32(src_ip) + w.worker_idx);
+    t.src_ip = src_ip;
     const uint16_t content = static_cast<uint16_t>(cfg.frame_size - 4);
     memset(t.tmpl, 0, sizeof(t.tmpl));
     auto *eth = reinterpret_cast<struct rte_ether_hdr *>(t.tmpl);
@@ -148,10 +167,114 @@ static int build_template(const AppState &st, WorkerCtx &w, RequestTracker &t)
     ip->hdr_checksum = rte_ipv4_cksum(ip);
     auto *rh = reinterpret_cast<request_header *>(t.tmpl + t.hdr_off);
     rh->magic_number = REQUEST_MAGIC;
+    /* Constant per run when fixed: the send path then leaves it alone. */
+    rh->processing_time_us = g_service.kind == WorkKind::Fixed ? g_service.lo_us : 0;
     t.tmpl_len = content;
     t.next_sport = cfg.sport_lo;
     t.next_dport = cfg.dport_lo;
     t.next_sn = 0;
+    return 0;
+}
+
+/* Ingress rule: IPv4 dst == this lcore's source IP -> its own RX queue. Rules
+ * outrank the port's default RSS flow, so every response is completed on the
+ * lcore that owns the request (no cross-lcore tracker traffic) and ESP
+ * responses, which RSS would pile onto one queue, spread over all lcores. */
+static int install_steer_flow(const WorkerCtx &w, const RequestTracker &t)
+{
+    struct rte_flow_attr attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.ingress = 1;
+    struct rte_flow_item_ipv4 ip_spec, ip_mask;
+    memset(&ip_spec, 0, sizeof(ip_spec));
+    memset(&ip_mask, 0, sizeof(ip_mask));
+    ip_spec.hdr.dst_addr = t.src_ip;
+    ip_mask.hdr.dst_addr = RTE_BE32(0xffffffff);
+    struct rte_flow_item pattern[3];
+    memset(pattern, 0, sizeof(pattern));
+    pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+    pattern[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
+    pattern[1].spec = &ip_spec;
+    pattern[1].mask = &ip_mask;
+    pattern[2].type = RTE_FLOW_ITEM_TYPE_END;
+    struct rte_flow_action_queue queue;
+    queue.index = w.queue_id;
+    struct rte_flow_action actions[2];
+    memset(actions, 0, sizeof(actions));
+    actions[0].type = RTE_FLOW_ACTION_TYPE_QUEUE;
+    actions[0].conf = &queue;
+    actions[1].type = RTE_FLOW_ACTION_TYPE_END;
+    struct rte_flow_error err;
+    memset(&err, 0, sizeof(err));
+    char ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &t.src_ip, ip, sizeof(ip));
+    if (rte_flow_validate(w.port_id, &attr, pattern, actions, &err) != 0) {
+        APP_LOG_ERR("rte_flow_validate(dst %s -> queue %u): %s (type %d)", ip, w.queue_id,
+                    err.message ? err.message : "?", err.type);
+        return -1;
+    }
+    struct rte_flow *f = rte_flow_create(w.port_id, &attr, pattern, actions, &err);
+    if (f == nullptr) {
+        APP_LOG_ERR("rte_flow_create(dst %s -> queue %u): %s (type %d)", ip, w.queue_id,
+                    err.message ? err.message : "?", err.type);
+        return -1;
+    }
+    g_steer_flows.push_back(f);
+    APP_LOG_INFO("lcore %u: responses to %s steered to queue %u", w.lcore_id, ip, w.queue_id);
+    return 0;
+}
+
+/* rte_mempool_obj_iter callback: write the frame template into one mbuf. */
+static void prefill_mbuf(struct rte_mempool *mp, void *opaque, void *obj, unsigned idx)
+{
+    (void)mp;
+    (void)idx;
+    auto *t = static_cast<RequestTracker *>(opaque);
+    auto *m = static_cast<struct rte_mbuf *>(obj);
+    rte_memcpy(rte_pktmbuf_mtod(m, void *), t->tmpl, t->tmpl_len);
+    /* The send path derives the data address from the mbuf pointer (no header
+     * load); that needs the same buf_addr + data_off layout in every mbuf. */
+    const auto off = static_cast<int32_t>(rte_pktmbuf_mtod(m, uint8_t *) - reinterpret_cast<uint8_t *>(m));
+    if (t->mbuf_data_off == -1)
+        t->mbuf_data_off = off;
+    else if (t->mbuf_data_off != off)
+        t->mbuf_data_off = -2;
+    /* rte_pktmbuf_init already left one segment, no next, refcnt 1 and zeroed
+     * offload fields; the lengths never change either. mlx5 returns TX mbufs
+     * to the pool untouched, so these stay valid across reuse and the send
+     * path can take raw objects with rte_mempool_get_bulk (no per-mbuf reset,
+     * which would touch the mbuf's second cache line). */
+    m->data_len = t->tmpl_len;
+    m->pkt_len = t->tmpl_len;
+}
+
+/* Dedicated TX pool whose mbufs carry the template from the start. TX never
+ * touches the data and this pool is not used for RX, so after the first fill
+ * only the per-request fields have to be written: no 500 B copy per packet. */
+static int create_tx_pool(AppState &st, WorkerCtx &w, RequestTracker &t)
+{
+    char name[RTE_MEMPOOL_NAMESIZE];
+    snprintf(name, sizeof(name), "tx_pool_lc%u", w.lcore_id);
+    /* Just enough for the TX ring, this lcore's mempool cache and the bursts in
+     * flight (2^n - 1, the rte_mempool optimum): a small pool keeps the mbuf
+     * headers being recycled inside L2 instead of streaming through DRAM. */
+    uint64_t want = static_cast<uint64_t>(st.cfg.txd) + 3u * MAX_BURST + 2u * RTE_MEMPOOL_CACHE_MAX_SIZE;
+    uint64_t pw = 1;
+    while (pw - 1 < want)
+        pw <<= 1;
+    const unsigned n = static_cast<unsigned>(pw - 1);
+    struct rte_mempool *p = rte_pktmbuf_pool_create(name, n, RTE_MEMPOOL_CACHE_MAX_SIZE, 0,
+                                                    RTE_MBUF_DEFAULT_BUF_SIZE,
+                                                    static_cast<int>(rte_lcore_to_socket_id(w.lcore_id)));
+    if (p == nullptr) {
+        APP_LOG_ERR("cannot create %s (%u mbufs): %s", name, n, rte_strerror(rte_errno));
+        return -1;
+    }
+    const uint32_t filled = rte_mempool_obj_iter(p, prefill_mbuf, &t);
+    if (t.mbuf_data_off < 0)
+        APP_LOG_WARN("lcore %u: TX pool mbufs have differing data offsets; using the header path", w.lcore_id);
+    t.tx_pool = p;
+    APP_LOG_INFO("lcore %u: TX pool %s, %u mbufs prefilled with the %u B template", w.lcore_id, name, filled, t.tmpl_len);
     return 0;
 }
 
@@ -179,17 +302,36 @@ int requester_init(AppState &st)
         t->owner_bits = static_cast<uint64_t>(i) << ID_SEQ_BITS;
         if (build_template(st, w, *t) < 0)
             return -1;
+        if (st.cfg.tx_fill == TxFill::Prefill) {
+            if (create_tx_pool(st, w, *t) < 0)
+                return -1;
+        } else {
+            t->tx_pool = w.pool;
+        }
         if (hdr_init(1, 10000000, 3, &w.rtt_hist) != 0) {
             APP_LOG_ERR("hdr_init failed for lcore %u", w.lcore_id);
             return -1;
         }
         w.tracker = t;
-        APP_LOG_INFO("lcore %u requester: %s frames of %u B, %lu rps, %u slots, service %s",
-                     w.lcore_id, st.cfg.traffic == TrafficKind::Udp ? "UDP" : "ESP", st.cfg.frame_size,
+        char ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &t->src_ip, ip, sizeof(ip));
+        APP_LOG_INFO("lcore %u requester: %s frames of %u B from %s, %lu rps, %u slots, service %s",
+                     w.lcore_id, st.cfg.traffic == TrafficKind::Udp ? "UDP" : "ESP", st.cfg.frame_size, ip,
                      static_cast<unsigned long>(st.cfg.rps), st.cfg.tracker_size,
                      work_spec_to_string(st.cfg.service_time).c_str());
+        if (st.cfg.rx_steer == RxSteer::Flow && install_steer_flow(w, *t) < 0)
+            return -1;
     }
     return 0;
+}
+
+void requester_stop(AppState &st)
+{
+    struct rte_flow_error err;
+    for (struct rte_flow *f : g_steer_flows)
+        if (rte_flow_destroy(st.port_id, f, &err) != 0)
+            APP_LOG_WARN("rte_flow_destroy: %s", err.message ? err.message : "?");
+    g_steer_flows.clear();
 }
 
 void requester_cleanup(AppState &st)
@@ -197,6 +339,8 @@ void requester_cleanup(AppState &st)
     for (unsigned i = 0; i < st.nb_workers; i++) {
         WorkerCtx &w = st.workers[i];
         if (w.tracker) {
+            if (w.tracker->tx_pool && w.tracker->tx_pool != w.pool)
+                rte_mempool_free(w.tracker->tx_pool);
             rte_free(w.tracker->slots);
             rte_free(w.tracker);
             w.tracker = nullptr;
@@ -269,6 +413,84 @@ static inline void complete(AppState *st, WorkerCtx *rx_w, uint64_t id, uint64_t
         hdr_record_value(rx_w->rtt_hist, static_cast<int64_t>((rtt * 1000000ULL) / g_hz));
 }
 
+/* Write the per-request fields of one TX batch. Every piece of state lives in
+ * a local for the whole batch: stores into the frame go through byte pointers
+ * that may alias anything, so fields read through `t`/`cfg` would otherwise be
+ * reloaded (and the cursors stored back) after every packet. Fields that are
+ * constant for the run (fixed service time, single destination port) are
+ * already in the template and are not written here. */
+template <TrafficKind KIND, bool COPY>
+__attribute__((noinline)) static void fill_requests(RequestTracker &t, const AppConfig &cfg, WorkerCtx *w,
+                                 struct rte_mbuf **pkts, uint32_t batch, uint64_t send_tsc)
+{
+    RequestSlot *const slots = t.slots;
+    const uint64_t mask = t.mask;
+    const uint64_t owner = t.owner_bits;
+    const uint16_t hdr_off = t.hdr_off, l4_off = t.l4_off, len = t.tmpl_len;
+    const uint16_t sp_lo = cfg.sport_lo, sp_hi = cfg.sport_hi;
+    const uint16_t dp_lo = cfg.dport_lo, dp_hi = cfg.dport_hi;
+    const bool vary_sport = sp_lo != sp_hi, vary_dport = dp_lo != dp_hi;
+    const bool vary_service = g_service.kind != WorkKind::Fixed;
+    const bool fixed_off = !COPY && t.mbuf_data_off >= 0;
+    const int32_t data_off = t.mbuf_data_off;
+    uint64_t seq = t.next_seq;
+    uint16_t sp = t.next_sport, dp = t.next_dport;
+    uint32_t sn = t.next_sn;
+    uint64_t prng = w->prng;
+    uint64_t lost = 0;
+
+    for (uint32_t i = 0; i < batch; i++) {
+        struct rte_mbuf *m = pkts[i];
+        if (i + PKT_PREFETCH < batch) {
+            struct rte_mbuf *ahead = pkts[i + PKT_PREFETCH];
+            rte_prefetch0(ahead); /* header: read by the PMD in rte_eth_tx_burst */
+            if (fixed_off)
+                __builtin_prefetch(reinterpret_cast<uint8_t *>(ahead) + data_off + l4_off, 1, 3);
+        }
+        uint8_t *d = fixed_off ? reinterpret_cast<uint8_t *>(m) + data_off : rte_pktmbuf_mtod(m, uint8_t *);
+        if (COPY) {
+            rte_memcpy(d, t.tmpl, len);
+            m->data_len = len;
+            m->pkt_len = len;
+        }
+
+        const uint64_t id = owner | (seq++ & ID_SEQ_MASK);
+        RequestSlot &slot = slots[id & mask];
+        /* The slot array is far larger than the caches and walked
+         * sequentially: fetch the line a few requests ahead, for write. */
+        __builtin_prefetch(&slots[(id + SLOT_PREFETCH) & mask], 1, 3);
+        const uint64_t prev = slot.id.load(std::memory_order_relaxed);
+        lost += (prev != 0) & (slot.done_id.load(std::memory_order_relaxed) != prev);
+        slot.send_tsc = send_tsc;
+        slot.id.store(id, std::memory_order_release);
+
+        auto *rh = reinterpret_cast<request_header *>(d + hdr_off);
+        rh->request_id = id;
+        if (vary_service)
+            rh->processing_time_us = g_service.sample(prng);
+        if (KIND == TrafficKind::Udp) {
+            auto *udp = reinterpret_cast<struct rte_udp_hdr *>(d + l4_off);
+            if (vary_sport) {
+                udp->src_port = rte_cpu_to_be_16(sp);
+                sp = sp >= sp_hi ? sp_lo : static_cast<uint16_t>(sp + 1);
+            }
+            if (vary_dport) {
+                udp->dst_port = rte_cpu_to_be_16(dp);
+                dp = dp >= dp_hi ? dp_lo : static_cast<uint16_t>(dp + 1);
+            }
+        } else {
+            auto *snp = reinterpret_cast<uint32_t *>(d + l4_off + 4);
+            *snp = rte_cpu_to_be_32(sn++);
+        }
+    }
+    t.next_seq = seq;
+    t.next_sport = sp;
+    t.next_dport = dp;
+    t.next_sn = sn;
+    w->prng = prng;
+    w->stats.req_lost += lost;
+}
+
 int requester_loop(void *arg)
 {
     AppState *st = static_cast<AppState *>(arg);
@@ -284,6 +506,8 @@ int requester_loop(void *arg)
     const uint16_t rx_burst = cfg.rx_burst;
     const TrafficKind kind = cfg.traffic;
     const uint64_t rps = cfg.rps;
+    const bool copy_template = cfg.tx_fill == TxFill::Copy;
+    struct rte_mempool *const tx_pool = t.tx_pool;
     struct rte_mbuf *pkts[MAX_BURST];
 
     APP_LOG_INFO("entering main loop on lcore %u (requester %u, port %u, queue %u)",
@@ -322,38 +546,23 @@ int requester_loop(void *arg)
             batch = MAX_BURST;
         }
         if (batch) {
-            if (unlikely(rte_pktmbuf_alloc_bulk(w->pool, pkts, batch) != 0)) {
+            const int got = copy_template
+                ? rte_pktmbuf_alloc_bulk(tx_pool, pkts, batch)
+                : rte_mempool_get_bulk(tx_pool, reinterpret_cast<void **>(pkts), batch);
+            if (unlikely(got != 0)) {
                 s.tx_drops += batch;
             } else {
                 const uint64_t send_tsc = rte_rdtsc();
-                for (uint32_t i = 0; i < batch; i++) {
-                    struct rte_mbuf *m = pkts[i];
-                    uint8_t *d = rte_pktmbuf_mtod(m, uint8_t *);
-                    rte_memcpy(d, t.tmpl, t.tmpl_len);
-                    m->data_len = t.tmpl_len;
-                    m->pkt_len = t.tmpl_len;
-
-                    const uint64_t id = t.owner_bits | (t.next_seq++ & ID_SEQ_MASK);
-                    RequestSlot &slot = t.slots[id & t.mask];
-                    const uint64_t prev = slot.id.load(std::memory_order_relaxed);
-                    if (prev != 0 && slot.done_id.load(std::memory_order_relaxed) != prev)
-                        s.req_lost++;
-                    slot.send_tsc = send_tsc;
-                    slot.id.store(id, std::memory_order_release);
-
-                    auto *rh = reinterpret_cast<request_header *>(d + t.hdr_off);
-                    rh->request_id = id;
-                    rh->processing_time_us = g_service.sample(w->prng);
-                    if (kind == TrafficKind::Udp) {
-                        auto *udp = reinterpret_cast<struct rte_udp_hdr *>(d + t.l4_off);
-                        udp->src_port = rte_cpu_to_be_16(t.next_sport);
-                        udp->dst_port = rte_cpu_to_be_16(t.next_dport);
-                        t.next_sport = t.next_sport >= cfg.sport_hi ? cfg.sport_lo : t.next_sport + 1;
-                        t.next_dport = t.next_dport >= cfg.dport_hi ? cfg.dport_lo : t.next_dport + 1;
-                    } else {
-                        auto *sn = reinterpret_cast<uint32_t *>(d + t.l4_off + 4);
-                        *sn = rte_cpu_to_be_32(t.next_sn++);
-                    }
+                if (kind == TrafficKind::Udp) {
+                    if (copy_template)
+                        fill_requests<TrafficKind::Udp, true>(t, cfg, w, pkts, batch, send_tsc);
+                    else
+                        fill_requests<TrafficKind::Udp, false>(t, cfg, w, pkts, batch, send_tsc);
+                } else {
+                    if (copy_template)
+                        fill_requests<TrafficKind::Esp, true>(t, cfg, w, pkts, batch, send_tsc);
+                    else
+                        fill_requests<TrafficKind::Esp, false>(t, cfg, w, pkts, batch, send_tsc);
                 }
                 const uint16_t sent = rte_eth_tx_burst(port, queue, pkts, static_cast<uint16_t>(batch));
                 s.tx_pkts += sent;

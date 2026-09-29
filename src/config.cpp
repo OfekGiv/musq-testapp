@@ -143,6 +143,16 @@ const char *swap_mode_name(SwapMode m)
     return "?";
 }
 const char *role_name(Role r) { return r == Role::Responder ? "responder" : "requester"; }
+const char *tx_fill_name(TxFill f) { return f == TxFill::Prefill ? "prefill" : "copy"; }
+const char *rx_steer_name(RxSteer s)
+{
+    switch (s) {
+    case RxSteer::Flow: return "flow";
+    case RxSteer::Rss: return "rss";
+    case RxSteer::None: return "none";
+    }
+    return "?";
+}
 const char *xstats_mode_name(XstatsMode m)
 {
     switch (m) {
@@ -205,6 +215,8 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
         ("sport", "requester/udp: source port or range a-b, cycled per packet", cxxopts::value<std::string>()->default_value("1025-1040"))
         ("dport", "requester/udp: destination port or range a-b", cxxopts::value<std::string>()->default_value("12345"))
         ("tracker-size", "requester: outstanding-request slots per lcore (power of 2)", cxxopts::value<uint32_t>()->default_value("1048576"))
+        ("rx-steer", "requester: flow (each lcore sends from src-ip+index, an rte_flow rule returns its responses to its own queue) | rss (per-lcore src IP, RSS spreads responses) | none (one src IP; ESP responses all land on one queue)", cxxopts::value<std::string>()->default_value("flow"))
+        ("tx-fill", "requester: prefill (dedicated TX mbuf pool per lcore, the frame template is written into every mbuf once and only the per-request fields are rewritten) | copy (rte_memcpy the whole template into each mbuf, korba behaviour)", cxxopts::value<std::string>()->default_value("prefill"))
         ("dry-run", "Print the resolved config and EAL argv, then exit")
         ("h,help", "Show help");
 
@@ -311,6 +323,16 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
         return -1;
     }
     cfg.tracker_size = r["tracker-size"].as<uint32_t>();
+    if (!parse_enum<RxSteer>(r["rx-steer"].as<std::string>(),
+            {{"flow", RxSteer::Flow}, {"rss", RxSteer::Rss}, {"none", RxSteer::None}}, cfg.rx_steer)) {
+        fprintf(stderr, "error: --rx-steer must be flow|rss|none\n");
+        return -1;
+    }
+    if (!parse_enum<TxFill>(r["tx-fill"].as<std::string>(),
+            {{"prefill", TxFill::Prefill}, {"copy", TxFill::Copy}}, cfg.tx_fill)) {
+        fprintf(stderr, "error: --tx-fill must be prefill|copy\n");
+        return -1;
+    }
     return 0;
 }
 
@@ -447,11 +469,13 @@ void print_resolved_config(const AppConfig &cfg, const std::vector<std::string> 
            static_cast<unsigned long>(cfg.tx_drain_us), cfg.rxd, cfg.txd,
            cfg.per_lcore_pool ? "per-lcore" : "shared", cfg.promisc ? 1 : 0);
     if (cfg.role == Role::Requester)
-        printf("  rps/lcore=%lu (total %lu) traffic=%s frame=%uB service=%s dst_mac=%s %s->%s sport=%u-%u dport=%u-%u slots=%u\n",
+        printf("  rps/lcore=%lu (total %lu) traffic=%s frame=%uB service=%s dst_mac=%s %s%s->%s sport=%u-%u dport=%u-%u slots=%u rx_steer=%s tx_fill=%s\n",
                static_cast<unsigned long>(cfg.rps), static_cast<unsigned long>(cfg.rps * cfg.nb_workers()),
                cfg.traffic == TrafficKind::Udp ? "udp" : "esp", cfg.frame_size,
                work_spec_to_string(cfg.service_time).c_str(), cfg.dst_mac.c_str(), cfg.src_ip.c_str(),
-               cfg.dst_ip.c_str(), cfg.sport_lo, cfg.sport_hi, cfg.dport_lo, cfg.dport_hi, cfg.tracker_size);
+               cfg.rx_steer == RxSteer::None ? "" : "+idx",
+               cfg.dst_ip.c_str(), cfg.sport_lo, cfg.sport_hi, cfg.dport_lo, cfg.dport_hi, cfg.tracker_size,
+               rx_steer_name(cfg.rx_steer), tx_fill_name(cfg.tx_fill));
     else
         printf("  work=%s swap=%s\n", work_spec_to_string(cfg.work).c_str(), swap_mode_name(cfg.swap));
     printf("  duration=%.1fs warmup=%.1fs stats_interval=%.2fs xstats=%s csv='%s'\n",

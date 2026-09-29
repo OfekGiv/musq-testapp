@@ -180,7 +180,9 @@ out:
     st.force_quit = true;
     rte_eal_mp_wait_lcore();
     reporter.close();
-    /* l3fwd order: ports first, DOCA (set up last) next, then EAL. */
+    /* l3fwd order: flow rules, ports, DOCA (set up last), then EAL. */
+    if (port_up && cfg.role == Role::Requester)
+        requester_stop(st);
     if (port_up)
         stop_port(st);
     if (doca_up || cfg.doca_enabled())

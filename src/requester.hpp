@@ -12,6 +12,8 @@
 
 /* Allocate trackers, histograms and packet templates for every worker. */
 int requester_init(AppState &st);
+/* Remove the response-steering flow rules; call before the port is stopped. */
+void requester_stop(AppState &st);
 void requester_cleanup(AppState &st);
 /* Worker entry point for Role::Requester. */
 int requester_loop(void *arg);
