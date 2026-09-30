@@ -153,13 +153,47 @@ so the packets return to TRex's source MAC.
 sudo /homes/ofekdg/prom-dpdk/usertools/dpdk-telemetry.py -f musq
 --> /eal/lcore/usage          # busy/total cycles per worker (same accounting as the CPU busy % row)
 --> /mlx5/musq/txq_status     # per-lane mu_sq ring state and mu_* diag counters
+--> /mlx5/txq/lane_wq         # per-lane WQ status recorded by each lane's own core
 --> /ethdev/xstats,0
 ```
+
+`/mlx5/txq/lane_wq` comes from the prom-dpdk mlx5 PMD (struct `mlx5_txq_lane_tel`,
+compile switch `MLX5_MU_LANE_TELEMETRY`, default on). Each TX queue's own core
+records, inside its `rte_eth_tx_burst`, the free WQEBBs it found at each
+resource check (sum, minimum, log2 histogram, latest), the WQEBBs a post needs
+(`room_need`: one lane stride plus the lap pad under mu_sq, 40 for 4 lanes),
+checks below that, and calls and packets refused. It writes only its own
+cache-aligned record from values the burst already computed, so there are no
+cross-core loads on the hot path, and the command reads only those records, not
+the lanes' ring indices; a single CPU-bound responder core measured no
+difference (33.37 vs 33.30 Mpps at 128 B). Unlike `/mlx5/musq/txq_status`, which
+reads each lane's live ring state from the telemetry thread, it is safe to poll
+during benchmarks. `scripts/musq_lane_wq.py` prints it as per-interval rates:
+
+```sh
+sudo scripts/musq_lane_wq.py -i 1          # Ctrl-C to stop; --raw for one JSON snapshot
+```
+
+```
+ port/q grp     calls/s refused%  pkts refused/s  free avg free min  need no-room% no-slot%  last free/used
+  0/0     4     474,898   14.95%       2,155,892        74        0    40    0.00%   14.95%      36/16348
+```
+
+A lane whose `no-slot%` matches its `refused%` is refusing because its share of
+the shared ring is full.
 
 ## Output
 
 Every `--stats-interval` and once at exit:
 
+- Responder summary: RX and TX pps and wire Gbps (bytes + 4 B FCS per packet) for
+  the window and as a run average, the rate offered at the port
+  (`rx_phy_packets`), packets the NIC dropped before any RX queue
+  (`rx_prio0_buf_discard_packets`, the NIC failing to DMA into host memory), RX
+  missed (RX queue out of buffers) and received-but-not-forwarded packets. The run
+  average counts from the start of measurement, so it includes any time before
+  traffic arrived; use `--warmup` or read the window rate. CSV rows use scope
+  `summary`.
 - Port table from `rte_eth_stats`: RX/TX packets (total, +window, pps), bytes and
   bandwidth, RX errors/missed/nombuf, TX errors.
 - Non-zero xstats deltas (per `--xstats`).
@@ -270,6 +304,8 @@ src/main.cpp       bring-up order, monitor loop, shutdown
 scripts/run.sh     sudo env -i wrapper with LD_LIBRARY_PATH
 scripts/trex_run.py    TRex burst generator (pps, frame size, duration, esp/udp); runs on danger50, launchable from danger51
 scripts/remote_build.sh  rsync the tree to danger50 and build the no-DOCA binary there
+scripts/musq_lane_wq.py  per-lane TX WQ status from the /mlx5/txq/lane_wq PMD telemetry
 docs/throughput.md       measured requester/responder throughput, limits and recipes
+docs/musq-investigation.md  status of the mu_sq TX-drop / lane-skew investigation, next steps
 third_party/hdr_histogram  HdrHistogram_c core (RTT percentiles)
 ```

@@ -27,6 +27,9 @@ public:
 
 private:
     void report_summary(const struct rte_eth_stats &s, uint64_t window_tsc, double window_s);
+    void report_responder_summary(const struct rte_eth_stats &s, uint64_t window_tsc, double window_s);
+    /* Reads the summary xstats (see sum_ids_) into vals; false if unavailable. */
+    bool read_summary_xstats(std::vector<uint64_t> &vals) const;
     void report_port(const struct rte_eth_stats &s, uint64_t window_tsc, double window_s, bool is_final);
     void report_xstats(uint64_t window_tsc, double window_s, bool is_final);
     void report_cores(uint64_t window_tsc, double window_s, bool is_final);
@@ -47,6 +50,11 @@ private:
     std::vector<std::string> xs_names_;
     std::vector<uint64_t> xs_ids_, xs_base_, xs_prev_;
     std::vector<CoreSnapshot> core_base_, core_prev_;
+    /* Responder summary: NIC xstats by id, each -1 when the PMD lacks it.
+     * [0] rx_phy_packets (offered at the port), [1] rx_prio0_buf_discard_packets
+     * (dropped in the NIC before any RX queue). */
+    int64_t sum_ids_[2] = {-1, -1};
+    uint64_t sum_base_[2] = {0, 0}, sum_prev_[2] = {0, 0};
     FILE *csv_ = nullptr;
 };
 

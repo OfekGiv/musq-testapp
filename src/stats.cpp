@@ -165,6 +165,10 @@ int StatsReporter::init(AppState &st)
             for (int i = 0; i < n; i++) {
                 xs_names_.emplace_back(names[i].name);
                 xs_ids_.push_back(static_cast<uint64_t>(i));
+                if (strcmp(names[i].name, "rx_phy_packets") == 0)
+                    sum_ids_[0] = i;
+                else if (strcmp(names[i].name, "rx_prio0_buf_discard_packets") == 0)
+                    sum_ids_[1] = i;
             }
             xs_base_.assign(n, 0);
             xs_prev_.assign(n, 0);
@@ -192,6 +196,10 @@ void StatsReporter::rebase()
     window_index_ = 0;
     rte_eth_stats_get(st_->port_id, &port_base_);
     port_prev_ = port_base_;
+    std::vector<uint64_t> sv;
+    if (read_summary_xstats(sv))
+        for (int k = 0; k < 2; k++)
+            sum_base_[k] = sum_prev_[k] = sv[k];
     if (!xs_ids_.empty()) {
         std::vector<uint64_t> vals(xs_ids_.size());
         if (rte_eth_xstats_get_by_id(st_->port_id, xs_ids_.data(), vals.data(),
@@ -234,6 +242,8 @@ void StatsReporter::report(uint64_t window_tsc, bool is_final)
         memset(&ps, 0, sizeof(ps));
     if (st_->cfg.role == Role::Requester)
         report_summary(ps, window_tsc, window_s_);
+    else
+        report_responder_summary(ps, window_tsc, window_s_);
     report_port(ps, window_tsc, window_s_, is_final);
     report_xstats(window_tsc, window_s_, is_final);
     report_cores(window_tsc, window_s_, is_final);
@@ -278,6 +288,82 @@ void StatsReporter::report_summary(const struct rte_eth_stats &s, uint64_t windo
     csv_row("summary", "port0", "drops", drops, 0, tx_t ? 100.0 * drops / tx_t : 0.0);
     csv_row("summary", "port0", "tx_gbps_wire", 0, 0, tx_gbps);
     csv_row("summary", "port0", "rx_gbps_wire", 0, 0, rx_gbps);
+}
+
+bool StatsReporter::read_summary_xstats(std::vector<uint64_t> &vals) const
+{
+    vals.assign(2, 0);
+    bool any = false;
+    for (int k = 0; k < 2; k++) {
+        if (sum_ids_[k] < 0)
+            continue;
+        uint64_t id = static_cast<uint64_t>(sum_ids_[k]);
+        if (rte_eth_xstats_get_by_id(st_->port_id, &id, &vals[k], 1) == 1)
+            any = true;
+    }
+    return any;
+}
+
+/* Responder headline: forwarding rate (pps and wire Gbps) per window and on
+ * average since the measurement start, what the port was offered, and where the
+ * packets that were not forwarded were lost. */
+void StatsReporter::report_responder_summary(const struct rte_eth_stats &s, uint64_t window_tsc, double window_s)
+{
+    const struct rte_eth_stats &base = port_base_, &prev = port_prev_;
+    auto rate = [&](uint64_t d) -> double {
+        return window_tsc ? static_cast<double>(d) * hz_ / window_tsc : 0.0;
+    };
+    auto avg = [&](uint64_t t) -> double { return elapsed_s_ > 0 ? t / elapsed_s_ : 0.0; };
+    /* +4 B FCS per packet: line rate on the wire, as in the requester summary. */
+    auto gbps = [](uint64_t bytes, uint64_t pkts, double secs) -> double {
+        return secs > 0 ? (bytes + 4.0 * pkts) * 8 / secs / 1e9 : 0.0;
+    };
+    const uint64_t rx_t = s.ipackets - base.ipackets, tx_t = s.opackets - base.opackets;
+    const uint64_t rx_d = s.ipackets - prev.ipackets, tx_d = s.opackets - prev.opackets;
+    const uint64_t rxb_t = s.ibytes - base.ibytes, txb_t = s.obytes - base.obytes;
+    const uint64_t rxb_d = s.ibytes - prev.ibytes, txb_d = s.obytes - prev.obytes;
+    const uint64_t miss_t = s.imissed - base.imissed, miss_d = s.imissed - prev.imissed;
+    const uint64_t unfwd_t = rx_t > tx_t ? rx_t - tx_t : 0;
+
+    KvTable t;
+    t.add("RX pps", fmt::format("{}  (run avg {})", group_u64(static_cast<uint64_t>(rate(rx_d))),
+                                group_u64(static_cast<uint64_t>(avg(rx_t)))));
+    t.add("TX pps", fmt::format("{}  (run avg {})", group_u64(static_cast<uint64_t>(rate(tx_d))),
+                                group_u64(static_cast<uint64_t>(avg(tx_t)))));
+    t.add("RX Gbps (wire)", fmt::format("{:.3f}  (run avg {:.3f})", gbps(rxb_d, rx_d, window_s),
+                                        gbps(rxb_t, rx_t, elapsed_s_)));
+    t.add("TX Gbps (wire)", fmt::format("{:.3f}  (run avg {:.3f})", gbps(txb_d, tx_d, window_s),
+                                        gbps(txb_t, tx_t, elapsed_s_)));
+
+    std::vector<uint64_t> sv;
+    const bool have_x = read_summary_xstats(sv);
+    uint64_t phy_t = 0, phy_d = 0, disc_t = 0, disc_d = 0;
+    if (have_x) {
+        phy_t = sv[0] - sum_base_[0];
+        phy_d = sv[0] - sum_prev_[0];
+        disc_t = sv[1] - sum_base_[1];
+        disc_d = sv[1] - sum_prev_[1];
+        sum_prev_[0] = sv[0];
+        sum_prev_[1] = sv[1];
+    }
+    if (have_x && sum_ids_[0] >= 0)
+        t.add("Offered at port pps", fmt::format("{}  (rx_phy_packets)", group_u64(static_cast<uint64_t>(rate(phy_d)))));
+    if (have_x && sum_ids_[1] >= 0)
+        t.add("NIC discards", fmt::format("{}  [{} pps]  (rx_prio0_buf_discard_packets)", group_u64(disc_t),
+                                          group_u64(static_cast<uint64_t>(rate(disc_d)))));
+    t.add("RX missed", fmt::format("{}  [{} pps]  (RX queue out of buffers)", group_u64(miss_t),
+                                   group_u64(static_cast<uint64_t>(rate(miss_d)))));
+    t.add("Not forwarded (RX-TX)", fmt::format("{}  ({:.4f}%)", group_u64(unfwd_t), rx_t ? 100.0 * unfwd_t / rx_t : 0.0));
+    t.print(fmt::format("Responder summary (window {:.3f}s, since start {:.1f}s)", window_s, elapsed_s_).c_str());
+
+    csv_row("summary", "port0", "rx_pps", rx_t, rx_d, rate(rx_d));
+    csv_row("summary", "port0", "tx_pps", tx_t, tx_d, rate(tx_d));
+    csv_row("summary", "port0", "rx_gbps_wire", 0, 0, gbps(rxb_d, rx_d, window_s));
+    csv_row("summary", "port0", "tx_gbps_wire", 0, 0, gbps(txb_d, tx_d, window_s));
+    if (have_x && sum_ids_[1] >= 0)
+        csv_row("summary", "port0", "nic_discards", disc_t, disc_d, rate(disc_d));
+    if (have_x && sum_ids_[0] >= 0)
+        csv_row("summary", "port0", "offered_pps", phy_t, phy_d, rate(phy_d));
 }
 
 void StatsReporter::report_port(const struct rte_eth_stats &s_in, uint64_t window_tsc, double window_s, bool is_final)
