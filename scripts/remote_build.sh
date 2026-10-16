@@ -23,5 +23,15 @@ if [[ ! -d build-nodoca ]]; then
 fi
 ninja -C build-nodoca
 ls -la build-nodoca/musq-testapp
+# Requester --esp-encap hw: a second binary linked with the host's own DOCA Flow.
+doca_pc=/opt/mellanox/doca/lib/x86_64-linux-gnu/pkgconfig
+if [[ -f \$doca_pc/doca-flow.pc ]]; then
+  if [[ ! -d build-esphw ]]; then
+    meson setup build-esphw -Denable_doca=disabled -Desp_hw=enabled -Dprom_install_dir="$prefix" \
+      -Ddpdk_pmd_subdir="$pmd_subdir" -Dpkg_config_path="$prefix/lib/x86_64-linux-gnu/pkgconfig:\$doca_pc"
+  fi
+  ninja -C build-esphw
+  ls -la build-esphw/musq-testapp
+fi
 REMOTE
 echo "built on $host: $dest/build-nodoca/musq-testapp (run with $dest/scripts/run.sh --role requester ...)"

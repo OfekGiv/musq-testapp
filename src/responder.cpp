@@ -1,5 +1,6 @@
 #include "responder.hpp"
 #include "work.hpp"
+#include "lane_epoch.hpp"
 
 #include <rte_ethdev.h>
 #include <rte_prefetch.h>
@@ -14,23 +15,35 @@ void responder_init(const AppConfig &cfg, uint64_t tsc_hz)
 /* rte_eth_tx_burst on the worker's own queue; anything refused is freed (l3fwd
  * send_burst / korba flush_tx_batch). Never more than tx_burst packets per call:
  * under mu_sq one call is one eMPW slot. */
-static inline void tx_send(WorkerCtx *w, struct rte_mbuf **m, uint16_t n)
+static inline uint16_t tx_send(WorkerCtx *w, uint16_t queue, struct rte_mbuf **m, uint16_t n)
 {
-    const uint16_t sent = rte_eth_tx_burst(w->port_id, w->queue_id, m, n);
+    const uint16_t sent = rte_eth_tx_burst(w->port_id, queue, m, n);
     w->stats.tx_pkts += sent;
     if (unlikely(sent < n)) {
         w->stats.tx_drops += static_cast<uint64_t>(n - sent);
         for (uint16_t i = sent; i < n; i++)
             rte_pktmbuf_free(m[i]);
     }
+    return sent;
 }
 
-static inline void flush_txbuf(WorkerCtx *w)
+static inline void flush_txbuf(WorkerCtx *w, WorkerCtx::TxBuf &b)
 {
-    if (w->txbuf.len == 0)
+    if (b.len == 0)
         return;
-    tx_send(w, w->txbuf.m, w->txbuf.len);
-    w->txbuf.len = 0;
+    tx_send(w, b.queue_id, b.m, b.len);
+    b.len = 0;
+}
+
+/* --tx-lanes > 1: the same, and keep this lane's own share of the counters. */
+static inline void flush_lane(WorkerCtx *w, WorkerCtx::TxBuf &b)
+{
+    if (b.len == 0)
+        return;
+    const uint16_t sent = tx_send(w, b.queue_id, b.m, b.len);
+    b.tx_pkts += sent;
+    b.tx_drops += static_cast<uint64_t>(b.len - sent);
+    b.len = 0;
 }
 
 /* Swap the headers so the packet goes back to its sender. Swapping IPv4
@@ -77,7 +90,9 @@ int responder_loop(void *arg)
     const AppConfig &cfg = st->cfg;
     const uint16_t port = w->port_id, queue = w->queue_id;
     const uint16_t rx_burst = cfg.rx_burst, tx_burst = cfg.tx_burst;
+    const uint16_t nb_lanes = w->nb_tx_lanes;
     const bool accumulate = cfg.tx_mode == TxMode::Accumulate;
+    const bool db_flush = cfg.db_wqes != 0;
     const bool header_work = g_sampler.kind == WorkKind::Header;
     const bool work_on = g_sampler.enabled();
     const SwapMode swap = cfg.swap;
@@ -94,8 +109,30 @@ int responder_loop(void *arg)
     while (!st->force_quit) {
         const uint64_t t0 = rte_rdtsc();
 
-        if (accumulate && unlikely(t0 - prev_drain > drain_tsc)) {
-            flush_txbuf(w);
+        lane_epoch_tick(w, t0);
+
+        if ((accumulate || db_flush) && unlikely(t0 - prev_drain > drain_tsc)) {
+            if (!accumulate) {
+                /* nothing buffered in immediate mode */
+            } else if (likely(nb_lanes == 1)) {
+                flush_txbuf(w, w->txbuf[0]);
+            } else {
+                for (uint16_t l = 0; l < nb_lanes; l++)
+                    flush_lane(w, w->txbuf[l]);
+            }
+            if (unlikely(db_flush)) {
+                /* --db-wqes: the PMD rings a lane's doorbell only every so
+                 * many WQEs, so the last ones of a burst of traffic wait. A
+                 * lane that posted nothing since the previous tick gets a
+                 * burst of no packets, which makes the PMD ring for them. */
+                for (uint16_t l = 0; l < nb_lanes; l++) {
+                    WorkerCtx::TxBuf &b = w->txbuf[l];
+                    const uint64_t sent = nb_lanes == 1 ? s.tx_pkts : b.tx_pkts;
+                    if (sent == b.db_seen)
+                        rte_eth_tx_burst(port, b.queue_id, pkts, 0);
+                    b.db_seen = sent;
+                }
+            }
             prev_drain = t0;
         }
 
@@ -141,23 +178,43 @@ int responder_loop(void *arg)
             }
         }
 
-        if (!accumulate) {
-            /* nb_rx <= rx_burst <= tx_burst: one call, at most one group. */
-            tx_send(w, pkts, nb_rx);
-        } else {
+        if (unlikely(nb_lanes != 1)) {
+            /* One lcore, several TX queues (mu_sq lanes): deal the packets to
+             * the lanes in turn, packet i of the stream to lane i % nb_lanes,
+             * as round-robin steering to one core per lane would. Each lane
+             * has its own buffer and gets its own rte_eth_tx_burst calls. */
+            uint16_t lane = w->next_lane;
             for (uint16_t i = 0; i < nb_rx; i++) {
-                w->txbuf.m[w->txbuf.len++] = pkts[i];
-                if (w->txbuf.len == tx_burst)
-                    flush_txbuf(w);
+                WorkerCtx::TxBuf &b = w->txbuf[lane];
+                b.m[b.len++] = pkts[i];
+                if (accumulate && b.len == tx_burst)
+                    flush_lane(w, b);
+                lane = static_cast<uint16_t>((lane + 1) & (nb_lanes - 1));
+            }
+            w->next_lane = lane;
+            if (!accumulate)
+                for (uint16_t l = 0; l < nb_lanes; l++)
+                    flush_lane(w, w->txbuf[l]);
+        } else if (!accumulate) {
+            /* nb_rx <= rx_burst <= tx_burst: one call, at most one group. */
+            tx_send(w, queue, pkts, nb_rx);
+        } else {
+            WorkerCtx::TxBuf &b = w->txbuf[0];
+            for (uint16_t i = 0; i < nb_rx; i++) {
+                b.m[b.len++] = pkts[i];
+                if (b.len == tx_burst)
+                    flush_txbuf(w, b);
             }
         }
         s.cycles_used += rte_rdtsc() - t0;
     }
 
     /* Do not transmit after the stop request: just release what is buffered. */
-    for (uint16_t i = 0; i < w->txbuf.len; i++)
-        rte_pktmbuf_free(w->txbuf.m[i]);
-    w->txbuf.len = 0;
+    for (uint16_t l = 0; l < nb_lanes; l++) {
+        for (uint16_t i = 0; i < w->txbuf[l].len; i++)
+            rte_pktmbuf_free(w->txbuf[l].m[i]);
+        w->txbuf[l].len = 0;
+    }
     APP_LOG_INFO("lcore %u leaving main loop: rx=%lu tx=%lu drops=%lu", lcore_id,
                  static_cast<unsigned long>(s.rx_pkts), static_cast<unsigned long>(s.tx_pkts),
                  static_cast<unsigned long>(s.tx_drops));

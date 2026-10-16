@@ -28,6 +28,8 @@ constexpr uint16_t MAX_BURST = 512;
 /* mlx5 mu_sq eMPW slot size (MLX5_MU_EMPW_PKTS in drivers/net/mlx5/mlx5.h). */
 constexpr uint16_t MUSQ_EMPW_PKTS = 32;
 constexpr uint16_t MUSQ_MAX_GROUP = 128; /* MLX5_MU_SQ_LOG_GRP_MAX_SIZE = 7 */
+/* Most TX queues (mu_sq lanes) one responder lcore can post to (--tx-lanes). */
+constexpr unsigned MAX_TX_LANES = 8;
 
 enum class DocaMode { None, MetaRr, EspRr };
 enum class TxMode { Immediate, Accumulate };
@@ -91,12 +93,46 @@ struct AppConfig {
     uint32_t tracker_size = 1u << 20;   /* outstanding-request slots per lcore, power of 2 */
     RxSteer rx_steer = RxSteer::Flow;   /* flow: per-lcore src IP + rte_flow dst IP -> owner queue */
     TxFill tx_fill = TxFill::Prefill;   /* prefill: TX-only pool, template written once per mbuf */
+    /* --traffic esp: false = the lcores write the ESP header and sequence
+     * number themselves (nothing is encrypted); true = they send plain UDP
+     * frames and the NIC encapsulates and encrypts them (IPsec packet offload,
+     * see esp_hw.hpp), with the sequence number counted by the NIC. */
+    bool esp_hw = false;
+    /* Stream correctness test: every requester lcore sends this file once, as
+     * its own flow, one chunk per request ([8 B chunk index][file bytes]), and
+     * stops sending when it is done. */
+    std::string tx_file;
+    /* Record what comes back on each requester lcore's queue, in arrival
+     * order, to <prefix>.w<worker>.{data,idx,json} at exit (see
+     * scripts/stream_compare.py). */
+    std::string rx_record;
+
+    /* Packets per TX WQE: 32 = multi-packet WQEs (mu_sq 32-packet slots of 9
+     * WQEBBs, or eMPW without mu_sq); 1 = one packet per WQE (mu_sq 1-packet
+     * slots of 1 WQEBB, which is a separate PMD build picked by scripts/run.sh,
+     * or txq_mpw_en=0 without mu_sq). */
+    unsigned pkts_per_wqe = 32;
+
+    /* Responder, one worker lcore: TX queues (mu_sq lanes) that lcore posts
+     * to, dealing the packets to them in turn. 1 = one TX queue per worker. */
+    unsigned tx_lanes = 1;
+
+    /* Responder with mu_sq: the PMD rings a lane's doorbell once every this
+     * many WQEs (mu_sq slots) the lane posts, through the mlx5 devarg
+     * mu_sq_db_wqes. 0 = the PMD's own rule, one doorbell per send pass. */
+    unsigned db_wqes = 0;
+
+    /* per-epoch lane status log (responder; needs the prom-dpdk mlx5 PMD) */
+    uint64_t lane_epoch_us = 0;         /* 0 = off */
+    uint32_t lane_epoch_max = 120000;   /* records per lane */
+    std::string lane_epoch_out = "lane_epoch.csv";
 
     unsigned nb_workers() const { return static_cast<unsigned>(lcores.size()); }
     bool doca_enabled() const { return doca_mode != DocaMode::None; }
+    unsigned nb_tx_queues() const { return nb_workers() * tx_lanes; }
     /* Effective mu_sq group size: 0 = feature off. */
     unsigned musq_group_eff() const {
-        return musq_group < 0 ? nb_workers() : static_cast<unsigned>(musq_group);
+        return musq_group < 0 ? nb_tx_queues() : static_cast<unsigned>(musq_group);
     }
 };
 
@@ -130,25 +166,37 @@ struct alignas(RTE_CACHE_LINE_SIZE) WorkerStats {
     uint64_t resp_unmatched = 0;  /* response magic but no matching slot (late, duplicate, stale) */
     uint64_t req_lost = 0;        /* slot reused while its request was still outstanding */
     uint64_t tx_batch_capped = 0; /* pacing asked for more than MAX_BURST in one iteration */
+    uint64_t rec_chunks = 0;      /* --rx-record: chunks recorded */
+    uint64_t rec_bad = 0;         /* --rx-record: frames that carry no chunk */
+    uint64_t rec_overflow = 0;    /* --rx-record: chunks beyond the record buffer */
 };
 
 struct RequestTracker;
 struct hdr_histogram;
+struct LaneEpochLog;
 
 struct alignas(RTE_CACHE_LINE_SIZE) WorkerCtx {
     unsigned lcore_id = 0;
     uint16_t worker_idx = 0;
     uint16_t port_id = 0;
-    uint16_t queue_id = 0;
+    uint16_t queue_id = 0;                 /* RX queue; with one TX lane also the TX queue */
     Role role = Role::Responder;
     struct rte_mempool *pool = nullptr;
-    struct {
+    /* Responder TX: one buffer per TX queue (lane) this lcore posts to. */
+    uint16_t nb_tx_lanes = 1;
+    uint16_t next_lane = 0;                /* --tx-lanes > 1: lane of the next packet */
+    struct TxBuf {
         struct rte_mbuf *m[MAX_BURST];
         uint16_t len = 0;
-    } txbuf;
+        uint16_t queue_id = 0;
+        uint64_t tx_pkts = 0;              /* --tx-lanes > 1: this lane's share of stats.tx_pkts */
+        uint64_t tx_drops = 0;
+        uint64_t db_seen = 0;              /* --db-wqes: the lane's TX count at the last drain tick */
+    } txbuf[MAX_TX_LANES];
     uint64_t prng = 0;
     RequestTracker *tracker = nullptr;     /* requester: this lcore's outstanding requests */
     struct hdr_histogram *rtt_hist = nullptr; /* requester: RTTs of responses received on this lcore (us) */
+    LaneEpochLog *epoch_log[MAX_TX_LANES] = {}; /* responder: per-epoch status of each TX lane, written by this lcore only */
     WorkerStats stats;
 };
 

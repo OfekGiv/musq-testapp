@@ -82,13 +82,31 @@ else
   cpp_args += ['-DENABLE_DOCA=0']
 endif
 
+# Requester --esp-encap hw: the NIC's IPsec packet offload through the system
+# DOCA Flow (not the vendored pipelines SDK above; the two cannot be mixed).
+if get_option('esp_hw').enabled()
+  if enable_doca.enabled()
+    error('esp_hw uses the system DOCA Flow: configure it with -Denable_doca=disabled')
+  endif
+  doca_flow_dep = dependency('doca-flow', include_type: 'system')
+  deps += [doca_flow_dep,
+           dependency('doca-dpdk-bridge', include_type: 'system'),
+           dependency('doca-common', include_type: 'system')]
+  rpath_dirs += [doca_flow_dep.get_variable(pkgconfig: 'libdir')]
+  cpp_args += ['-DENABLE_ESP_HW=1']
+else
+  cpp_args += ['-DENABLE_ESP_HW=0']
+endif
+
 sources = files(
   'src/main.cpp',
   'src/config.cpp',
   'src/bringup.cpp',
   'src/responder.cpp',
   'src/requester.cpp',
+  'src/esp_hw.cpp',
   'src/stats.cpp',
+  'src/lane_epoch.cpp',
 )
 
 executable('musq-testapp', sources,

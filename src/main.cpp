@@ -1,6 +1,8 @@
 #include "app.hpp"
 #include "bringup.hpp"
 #include "config.hpp"
+#include "esp_hw.hpp"
+#include "lane_epoch.hpp"
 #include "requester.hpp"
 #include "responder.hpp"
 #include "stats.hpp"
@@ -137,6 +139,9 @@ int main(int argc, char **argv)
     if (cfg.doca_enabled()) {
         if (doca_probe(cfg) < 0)
             goto out;
+    } else if (cfg.esp_hw) {
+        if (esp_hw_probe(cfg) < 0)
+            goto out;
     } else if (rte_eth_dev_count_avail() < 1) {
         APP_LOG_ERR("no ethdev found for %s", cfg.pci.c_str());
         goto out;
@@ -158,6 +163,9 @@ int main(int argc, char **argv)
             goto out;
     } else {
         responder_init(cfg, st.tsc_hz);
+        lane_pmd_init();
+        if (lane_slot_check(st) < 0 || lane_epoch_init(st) < 0)
+            goto out;
     }
     if (reporter.init(st) < 0)
         goto out;
@@ -180,6 +188,7 @@ out:
     st.force_quit = true;
     rte_eal_mp_wait_lcore();
     reporter.close();
+    lane_epoch_dump(st); /* workers are stopped: the only reader of the lane logs */
     /* l3fwd order: flow rules, ports, DOCA (set up last), then EAL. */
     if (port_up && cfg.role == Role::Requester)
         requester_stop(st);
@@ -187,7 +196,10 @@ out:
         stop_port(st);
     if (doca_up || cfg.doca_enabled())
         doca_cleanup();
+    if (cfg.esp_hw)
+        esp_hw_cleanup();
     requester_cleanup(st);
+    lane_epoch_cleanup(st);
     free_pools(st);
     rte_eal_cleanup();
     /* eal_argv strings are intentionally not freed: rte_eal_init() takes

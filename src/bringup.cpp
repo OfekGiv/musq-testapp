@@ -77,7 +77,12 @@ int setup_workers(AppState &st)
         w.port_id = st.port_id;
         w.queue_id = static_cast<uint16_t>(idx);
         w.role = st.cfg.role;
-        w.txbuf.len = 0;
+        w.nb_tx_lanes = static_cast<uint16_t>(st.cfg.tx_lanes);
+        w.next_lane = 0;
+        for (unsigned l = 0; l < st.cfg.tx_lanes; l++) {
+            w.txbuf[l].len = 0;
+            w.txbuf[l].queue_id = static_cast<uint16_t>(idx * st.cfg.tx_lanes + l);
+        }
         w.prng = rte_rand() | 1;
         st.lcore_to_worker[lcore] = static_cast<int>(idx);
         idx++;
@@ -101,7 +106,7 @@ static unsigned pool_size_for(const AppConfig &cfg, unsigned nb_queues)
 {
     /* Per queue: RX ring + TX ring in flight + bursts in the app; then some
      * headroom, rounded to 2^n - 1 (optimum for rte_mempool). */
-    uint64_t n = static_cast<uint64_t>(nb_queues) * (cfg.rxd + cfg.txd + 2u * MAX_BURST) +
+    uint64_t n = static_cast<uint64_t>(nb_queues) * (cfg.rxd + cfg.tx_lanes * (cfg.txd + MAX_BURST) + MAX_BURST) +
                  static_cast<uint64_t>(nb_queues) * RTE_MEMPOOL_CACHE_MAX_SIZE;
     n = n + n / 4;
     if (n < 8192)
@@ -178,15 +183,16 @@ int configure_port(AppState &st)
     const AppConfig &cfg = st.cfg;
     const uint16_t port = st.port_id;
     const uint16_t nq = static_cast<uint16_t>(st.nb_workers);
+    const uint16_t ntxq = static_cast<uint16_t>(st.nb_workers * cfg.tx_lanes);
     struct rte_eth_dev_info dev_info;
     int ret = rte_eth_dev_info_get(port, &dev_info);
     if (ret != 0) {
         APP_LOG_ERR("rte_eth_dev_info_get(%u): %s", port, strerror(-ret));
         return -1;
     }
-    if (nq > dev_info.max_rx_queues || nq > dev_info.max_tx_queues) {
-        APP_LOG_ERR("port %u supports %u rx / %u tx queues, need %u", port,
-                    dev_info.max_rx_queues, dev_info.max_tx_queues, nq);
+    if (nq > dev_info.max_rx_queues || ntxq > dev_info.max_tx_queues) {
+        APP_LOG_ERR("port %u supports %u rx / %u tx queues, need %u / %u", port,
+                    dev_info.max_rx_queues, dev_info.max_tx_queues, nq, ntxq);
         return -1;
     }
 
@@ -206,10 +212,10 @@ int configure_port(AppState &st)
         conf.txmode.offloads |= RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
 
     APP_LOG_INFO("configuring port %u: %u rx + %u tx queues, rss_hf=%#lx rx_offloads=%#lx tx_offloads=%#lx",
-                 port, nq, nq, static_cast<unsigned long>(conf.rx_adv_conf.rss_conf.rss_hf),
+                 port, nq, ntxq, static_cast<unsigned long>(conf.rx_adv_conf.rss_conf.rss_hf),
                  static_cast<unsigned long>(conf.rxmode.offloads),
                  static_cast<unsigned long>(conf.txmode.offloads));
-    ret = rte_eth_dev_configure(port, nq, nq, &conf);
+    ret = rte_eth_dev_configure(port, nq, ntxq, &conf);
     if (ret < 0) {
         APP_LOG_ERR("rte_eth_dev_configure(%u): %s", port, rte_strerror(-ret));
         return -1;
@@ -235,10 +241,12 @@ int configure_port(AppState &st)
         const unsigned socket = rte_lcore_to_socket_id(w.lcore_id);
         struct rte_eth_txconf txconf = dev_info.default_txconf;
         txconf.offloads = conf.txmode.offloads;
-        ret = rte_eth_tx_queue_setup(port, w.queue_id, txd, socket, &txconf);
-        if (ret < 0) {
-            APP_LOG_ERR("rte_eth_tx_queue_setup(%u, q%u): %s", port, w.queue_id, rte_strerror(-ret));
-            return -1;
+        for (unsigned l = 0; l < w.nb_tx_lanes; l++) {
+            ret = rte_eth_tx_queue_setup(port, w.txbuf[l].queue_id, txd, socket, &txconf);
+            if (ret < 0) {
+                APP_LOG_ERR("rte_eth_tx_queue_setup(%u, q%u): %s", port, w.txbuf[l].queue_id, rte_strerror(-ret));
+                return -1;
+            }
         }
         struct rte_eth_rxconf rxconf = dev_info.default_rxconf;
         rxconf.offloads = conf.rxmode.offloads;
@@ -247,8 +255,13 @@ int configure_port(AppState &st)
             APP_LOG_ERR("rte_eth_rx_queue_setup(%u, q%u): %s", port, w.queue_id, rte_strerror(-ret));
             return -1;
         }
-        APP_LOG_INFO("lcore %u: port %u queue %u (rx+tx), pool %s, socket %u",
-                     w.lcore_id, port, w.queue_id, w.pool->name, socket);
+        if (w.nb_tx_lanes == 1)
+            APP_LOG_INFO("lcore %u: port %u queue %u (rx+tx), pool %s, socket %u",
+                         w.lcore_id, port, w.queue_id, w.pool->name, socket);
+        else
+            APP_LOG_INFO("lcore %u: port %u rx queue %u, tx queues %u..%u (%u lanes dealt in turn), pool %s, socket %u",
+                         w.lcore_id, port, w.queue_id, w.txbuf[0].queue_id,
+                         w.txbuf[w.nb_tx_lanes - 1].queue_id, w.nb_tx_lanes, w.pool->name, socket);
     }
 
     ret = rte_eth_dev_start(port);
@@ -256,6 +269,11 @@ int configure_port(AppState &st)
         APP_LOG_ERR("rte_eth_dev_start(%u): %s", port, rte_strerror(-ret));
         return -1;
     }
+    /* The TX routine the PMD selected at start: on mlx5 "Enhanced MPW ..." or,
+     * with txq_mpw_en=0, "No MPW ..." (one SEND WQE per packet). */
+    struct rte_eth_burst_mode tx_mode;
+    if (rte_eth_tx_burst_mode_get(port, 0, &tx_mode) == 0)
+        APP_LOG_INFO("port %u TX burst mode: %s", port, tx_mode.info);
     if (cfg.promisc) {
         ret = rte_eth_promiscuous_enable(port);
         if (ret != 0) {

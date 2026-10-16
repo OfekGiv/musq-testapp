@@ -175,7 +175,7 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
 {
     cxxopts::Options opts("musq-testapp",
         "Receive-and-send-back DPDK test app for the mu_sq / DOCA Flow mlx5 feature");
-    std::string lcores, doca_mode, tx_mode, work, swap, xstats, role, musq_group;
+    std::string lcores, doca_mode, tx_mode, work, swap, xstats, role, musq_group, esp_encap;
     bool shared_pool = false, no_promisc = false;
     opts.add_options()
         ("pci", "PCI BDF of the data-path port", cxxopts::value<std::string>()->default_value(cfg.pci))
@@ -217,6 +217,15 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
         ("tracker-size", "requester: outstanding-request slots per lcore (power of 2)", cxxopts::value<uint32_t>()->default_value("1048576"))
         ("rx-steer", "requester: flow (each lcore sends from src-ip+index, an rte_flow rule returns its responses to its own queue) | rss (per-lcore src IP, RSS spreads responses) | none (one src IP; ESP responses all land on one queue)", cxxopts::value<std::string>()->default_value("flow"))
         ("tx-fill", "requester: prefill (dedicated TX mbuf pool per lcore, the frame template is written into every mbuf once and only the per-request fields are rewritten) | copy (rte_memcpy the whole template into each mbuf, korba behaviour)", cxxopts::value<std::string>()->default_value("prefill"))
+        ("esp-encap", "requester, --traffic esp: sw (the lcores write the ESP header and sequence number; nothing is encrypted) | hw (the lcores send plain UDP frames and the NIC encapsulates them as ESP transport mode with AES-GCM: SPI, one sequence number stream counted by the NIC over all lcores together, IV, trailer and ICV; IPsec packet offload through DOCA Flow, needs the build-esphw binary that scripts/run.sh selects; responses come back encrypted and are only counted)", cxxopts::value<std::string>()->default_value("sw"))
+        ("tx-file", "requester: stream correctness test; each lcore sends this file once as its own flow, one chunk per request ([8 B chunk index][file bytes], ESP SN = chunk index), then stops sending", cxxopts::value<std::string>()->default_value(""))
+        ("rx-record", "requester: record each lcore's responses in arrival order to <prefix>.w<worker>.{data,idx,json} at exit (needs --tx-file; compare with scripts/stream_compare.py)", cxxopts::value<std::string>()->default_value(""))
+        ("pkts-per-wqe", "Packets per TX WQE: 32 (default; mu_sq 32-packet slots / eMPW) or 1 (one packet per WQE: mu_sq 1-WQEBB slots, needs the 1-packet PMD build that scripts/run.sh selects; without mu_sq adds txq_mpw_en=0)", cxxopts::value<unsigned>()->default_value("32"))
+        ("tx-lanes", "responder, one worker lcore: TX queues (mu_sq lanes) that lcore posts to, dealing the packets to them in turn (packet i to lane i % n), each lane with its own buffer and rte_eth_tx_burst calls: one core doing the TX work of n. A power of 2 <= 8; --musq-group auto then is n. (One lcore with ONE TX queue that drives every lane of a group itself is --tx-lanes 1 --musq-group <lanes>.)", cxxopts::value<unsigned>()->default_value("1"))
+        ("db-wqes", "responder with mu_sq: WQEs (mu_sq slots) a lane posts per doorbell. The PMD then rings the doorbell every that many WQEs, wherever a burst ends, instead of once per send pass (mlx5 devarg mu_sq_db_wqes; at most half the slots a lane has in the ring). A lane that posts nothing for --tx-drain-us rings what is held back. 0 = the PMD's own rule", cxxopts::value<unsigned>()->default_value("0"))
+        ("lane-epoch-us", "responder: record each lane's cumulative RX/TX packets, busy/idle CPU cycles and WQ position (wqe_ci/pi/free, slots) once per epoch of this many us on a common TSC grid, dumped as CSV at exit (0 = off; the WQ columns need the prom-dpdk mlx5 PMD, DOCA build)", cxxopts::value<uint64_t>()->default_value("0"))
+        ("lane-epoch-out", "CSV file for --lane-epoch-us", cxxopts::value<std::string>()->default_value("lane_epoch.csv"))
+        ("lane-epoch-max", "Max records per lane for --lane-epoch-us (80 B each)", cxxopts::value<uint32_t>()->default_value("120000"))
         ("dry-run", "Print the resolved config and EAL argv, then exit")
         ("h,help", "Show help");
 
@@ -323,11 +332,25 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
         return -1;
     }
     cfg.tracker_size = r["tracker-size"].as<uint32_t>();
+    cfg.pkts_per_wqe = r["pkts-per-wqe"].as<unsigned>();
+    cfg.tx_lanes = r["tx-lanes"].as<unsigned>();
+    cfg.db_wqes = r["db-wqes"].as<unsigned>();
+    cfg.lane_epoch_us = r["lane-epoch-us"].as<uint64_t>();
+    cfg.lane_epoch_out = r["lane-epoch-out"].as<std::string>();
+    cfg.lane_epoch_max = r["lane-epoch-max"].as<uint32_t>();
     if (!parse_enum<RxSteer>(r["rx-steer"].as<std::string>(),
             {{"flow", RxSteer::Flow}, {"rss", RxSteer::Rss}, {"none", RxSteer::None}}, cfg.rx_steer)) {
         fprintf(stderr, "error: --rx-steer must be flow|rss|none\n");
         return -1;
     }
+    esp_encap = r["esp-encap"].as<std::string>();
+    if (esp_encap != "sw" && esp_encap != "hw") {
+        fprintf(stderr, "error: --esp-encap must be sw|hw\n");
+        return -1;
+    }
+    cfg.esp_hw = esp_encap == "hw";
+    cfg.tx_file = r["tx-file"].as<std::string>();
+    cfg.rx_record = r["rx-record"].as<std::string>();
     if (!parse_enum<TxFill>(r["tx-fill"].as<std::string>(),
             {{"prefill", TxFill::Prefill}, {"copy", TxFill::Copy}}, cfg.tx_fill)) {
         fprintf(stderr, "error: --tx-fill must be prefill|copy\n");
@@ -369,19 +392,42 @@ bool validate_config(const AppConfig &cfg)
              "ninja -C build-nodoca (scripts/run.sh picks build-nodoca automatically)");
 #endif
     }
+    if (!is_pow2(cfg.tx_lanes) || cfg.tx_lanes > MAX_TX_LANES) {
+        fail(fmt::format("--tx-lanes {} must be a power of 2 <= {}", cfg.tx_lanes, MAX_TX_LANES));
+        return false;
+    }
+    if (cfg.tx_lanes > 1 && (nw != 1 || cfg.role != Role::Responder))
+        fail("--tx-lanes > 1 needs the responder role and exactly one worker lcore");
     const unsigned grp = cfg.musq_group_eff();
+    const unsigned ntxq = cfg.nb_tx_queues();
     if (grp != 0 && (!is_pow2(grp) || grp > MUSQ_MAX_GROUP))
         fail(fmt::format("--musq-group {} must be 0 or a power of 2 <= {}", grp, MUSQ_MAX_GROUP));
-    if (grp != 0 && grp != nw)
-        warn(fmt::format("--musq-group {} != {} worker lcores; the convention is one lane per worker", grp, nw));
+    if (grp != 0 && grp != ntxq) {
+        if (ntxq == 1)
+            warn(fmt::format("--musq-group {} with one TX queue: that queue drives all {} lanes itself "
+                             "(needs the prom-dpdk mlx5 PMD that supports it)", grp, grp));
+        else
+            warn(fmt::format("--musq-group {} != {} TX queues; a group needs one TX queue per lane, "
+                             "or a single TX queue for all of them", grp, ntxq));
+    }
 
     if (!is_pow2(cfg.tx_burst) || cfg.tx_burst > MAX_BURST)
         fail(fmt::format("--tx-burst {} must be a power of 2 <= {}", cfg.tx_burst, MAX_BURST));
     if (cfg.rx_burst == 0 || cfg.rx_burst > cfg.tx_burst)
         fail(fmt::format("--rx-burst {} must be in 1..tx-burst ({})", cfg.rx_burst, cfg.tx_burst));
-    if (grp != 0 && cfg.tx_burst > MUSQ_EMPW_PKTS)
+    if (grp != 0 && cfg.pkts_per_wqe == 32 && cfg.tx_burst > MUSQ_EMPW_PKTS)
         warn(fmt::format("--tx-burst {} exceeds the mu_sq slot size ({}); one tx_burst call will span slots",
                          cfg.tx_burst, MUSQ_EMPW_PKTS));
+    if (cfg.pkts_per_wqe != 1 && cfg.pkts_per_wqe != 32)
+        fail("--pkts-per-wqe must be 1 or 32");
+    if (cfg.db_wqes != 0 && (grp == 0 || cfg.role != Role::Responder))
+        fail("--db-wqes needs the responder role and a mu_sq group");
+    if (cfg.db_wqes > 4096)
+        fail("--db-wqes must be in 0..4096");
+    if (cfg.lane_epoch_us != 0 && cfg.role != Role::Responder)
+        fail("--lane-epoch-us is a responder option");
+    if (cfg.lane_epoch_us != 0 && (cfg.lane_epoch_max == 0 || cfg.lane_epoch_out.empty()))
+        fail("--lane-epoch-us needs --lane-epoch-max > 0 and an output file");
     if (cfg.tx_mode == TxMode::Accumulate && cfg.tx_drain_us == 0)
         fail("--tx-drain-us must be > 0 in accumulate mode");
     if (cfg.rxd < 64 || cfg.txd < 64)
@@ -400,6 +446,27 @@ bool validate_config(const AppConfig &cfg)
         const unsigned min_content = 14 + 20 + 8 + 18; /* eth + ipv4 + (udp | spi+sn) + request_header */
         if (cfg.frame_size < min_content + 4 || cfg.frame_size > 1518)
             fail(fmt::format("--frame-size {} must be in {}..1518 (on the wire incl. FCS)", cfg.frame_size, min_content + 4));
+        if (!cfg.tx_file.empty() && cfg.frame_size < min_content + 4 + 8 + 1)
+            fail(fmt::format("--tx-file needs --frame-size >= {} (room for the 8 B chunk index and data)", min_content + 4 + 9));
+        if (!cfg.rx_record.empty() && cfg.tx_file.empty())
+            fail("--rx-record needs --tx-file");
+        if (cfg.esp_hw) {
+            /* IPv4 + ESP hdr + IV + (UDP + request header, padded) + trailer + ICV */
+            const unsigned min_hw = 14 + 20 + 16 + 28 + 16 + 4;
+            if (cfg.traffic != TrafficKind::Esp)
+                fail("--esp-encap hw needs --traffic esp");
+            if (cfg.frame_size < min_hw)
+                fail(fmt::format("--esp-encap hw needs --frame-size >= {}", min_hw));
+            if (!cfg.tx_file.empty())
+                fail("--esp-encap hw cannot be combined with --tx-file (the NIC, not the file, sets the sequence number)");
+#if !ENABLE_ESP_HW
+            fail("--esp-encap hw needs a build with -Desp_hw=enabled (scripts/run.sh picks build-esphw)");
+#endif
+        }
+    } else if (!cfg.tx_file.empty() || !cfg.rx_record.empty()) {
+        fail("--tx-file/--rx-record are requester options");
+    } else if (cfg.esp_hw) {
+        fail("--esp-encap is a requester option");
     }
     return ok;
 }
@@ -408,8 +475,13 @@ std::string musq_devargs(const AppConfig &cfg)
 {
     std::string s;
     const unsigned grp = cfg.musq_group_eff();
-    if (grp != 0)
+    if (grp != 0) {
         s = fmt::format("mu_sq_log_grp_size={}", log2_pow2(grp));
+        if (cfg.db_wqes != 0)
+            s += fmt::format(",mu_sq_db_wqes={}", cfg.db_wqes);
+    } else if (cfg.pkts_per_wqe == 1) {
+        s = "txq_mpw_en=0"; /* no multi-packet WQEs: one SEND WQE per packet */
+    }
     if (!cfg.devargs.empty()) {
         if (!s.empty())
             s += ",";
@@ -433,7 +505,7 @@ std::vector<std::string> build_eal_argv(const AppConfig &cfg, const char *prog)
     v.push_back(cfg.file_prefix);
     v.emplace_back("--log-level");
     v.push_back(fmt::format("{}", cfg.log_level));
-    if (cfg.doca_enabled()) {
+    if (cfg.doca_enabled() || cfg.esp_hw) {
         /* Same shape l3fwd's pre_parse_args() produces: a dummy BDF switches EAL
          * to allow-list mode so the real PF is not attached by EAL, and the
          * auxiliary bus stays scanned. The PF is probed through the DOCA DPDK
@@ -463,7 +535,8 @@ void print_resolved_config(const AppConfig &cfg, const std::vector<std::string> 
     printf("  pci=%s devargs='%s' musq_group=%u doca_mode=%s doca_group=%u\n",
            cfg.pci.c_str(), musq_devargs(cfg).c_str(), cfg.musq_group_eff(),
            doca_mode_name(cfg.doca_mode), cfg.doca_group);
-    printf("  main_lcore=%u workers=[%s] role=%s\n", cfg.main_lcore, lc.c_str(), role_name(cfg.role));
+    printf("  main_lcore=%u workers=[%s] role=%s pkts_per_wqe=%u tx_lanes=%u db_wqes=%u\n", cfg.main_lcore, lc.c_str(),
+           role_name(cfg.role), cfg.pkts_per_wqe, cfg.tx_lanes, cfg.db_wqes);
     printf("  rx_burst=%u tx_burst=%u tx_mode=%s tx_drain_us=%lu rxd=%u txd=%u pool=%s promisc=%d\n",
            cfg.rx_burst, cfg.tx_burst, tx_mode_name(cfg.tx_mode),
            static_cast<unsigned long>(cfg.tx_drain_us), cfg.rxd, cfg.txd,
@@ -476,7 +549,11 @@ void print_resolved_config(const AppConfig &cfg, const std::vector<std::string> 
                cfg.rx_steer == RxSteer::None ? "" : "+idx",
                cfg.dst_ip.c_str(), cfg.sport_lo, cfg.sport_hi, cfg.dport_lo, cfg.dport_hi, cfg.tracker_size,
                rx_steer_name(cfg.rx_steer), tx_fill_name(cfg.tx_fill));
-    else
+    if (cfg.role == Role::Requester && !cfg.tx_file.empty())
+        printf("  tx_file='%s' rx_record='%s'\n", cfg.tx_file.c_str(), cfg.rx_record.c_str());
+    if (cfg.role == Role::Requester && cfg.traffic == TrafficKind::Esp)
+        printf("  esp_encap=%s\n", cfg.esp_hw ? "hw (NIC IPsec packet offload)" : "sw");
+    if (cfg.role != Role::Requester)
         printf("  work=%s swap=%s\n", work_spec_to_string(cfg.work).c_str(), swap_mode_name(cfg.swap));
     printf("  duration=%.1fs warmup=%.1fs stats_interval=%.2fs xstats=%s csv='%s'\n",
            cfg.duration_s, cfg.warmup_s, cfg.stats_interval_s, xstats_mode_name(cfg.xstats),

@@ -17,6 +17,8 @@ Per interval and lane:
   last free/used  latest sample                          cumulative)
   no-slot%    checks with fewer free WQEBBs than a post needs (room_need: one
               lane stride + lap pad under mu_sq, e.g. 9*4+4 = 40 for 4 lanes)
+  db/s        doorbell register writes     pkts/db  packets posted per doorbell
+              ("-" with a PMD that does not count doorbells)
 """
 import argparse
 import json
@@ -61,7 +63,8 @@ def main():
     t_prev = time.monotonic()
     done = 0
     hdr = (f"{'port/q':>7} {'grp':>3} {'calls/s':>11} {'refused%':>8} {'pkts refused/s':>15} "
-           f"{'free avg':>9} {'free min':>8} {'need':>5} {'no-room%':>8} {'no-slot%':>8} {'last free/used':>15}")
+           f"{'free avg':>9} {'free min':>8} {'need':>5} {'no-room%':>8} {'no-slot%':>8} {'last free/used':>15} "
+           f"{'db/s':>11} {'pkts/db':>8}")
     try:
         while a.count == 0 or done < a.count:
             time.sleep(a.interval)
@@ -77,12 +80,17 @@ def main():
                 calls, refused, prefused = dl("calls"), dl("calls_refused"), dl("pkts_refused")
                 passes, noroom, fsum = dl("passes"), dl("passes_no_room"), dl("free_sum")
                 noslot = dl("passes_no_slot")
+                if "doorbells" in cur:
+                    db, posted = dl("doorbells"), dl("pkts_offered") - prefused
+                    dbs = f"{db / dt:>11,.0f} {posted / db if db else 0:>8.1f}"
+                else:
+                    dbs = f"{'-':>11} {'-':>8}"
                 print(f"{cur['port_id'][i]:>3}/{cur['queue'][i]:<3} {1 << cur['log_group_size'][i] if cur['log_group_size'][i] else 0:>3} "
                       f"{calls / dt:>11,.0f} {100.0 * refused / calls if calls else 0:>7.2f}% "
                       f"{prefused / dt:>15,.0f} {fsum / passes if passes else 0:>9.0f} {cur['free_min'][i]:>8} "
                       f"{cur['room_need'][i]:>5} {100.0 * noroom / passes if passes else 0:>7.2f}% "
                       f"{100.0 * noslot / passes if passes else 0:>7.2f}% "
-                      f"{cur['last_free'][i]:>7}/{cur['last_used'][i]:<7}")
+                      f"{cur['last_free'][i]:>7}/{cur['last_used'][i]:<7} {dbs}")
             prev, t_prev = cur, t
             done += 1
     except KeyboardInterrupt:

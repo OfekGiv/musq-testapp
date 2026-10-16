@@ -11,3 +11,5 @@ option('dpdk_pmd_subdir', type: 'string', value: 'dpdk/pmds-26.0',
        description: 'PMD plugin subdir under <prom_install_dir>/lib/x86_64-linux-gnu')
 option('enable_doca', type: 'feature', value: 'enabled',
        description: 'Link the DOCA pipelines SDK (required for --doca-mode meta_rr|esp_rr)')
+option('esp_hw', type: 'feature', value: 'disabled',
+       description: 'Requester --esp-encap hw: ESP encapsulation by the NIC (IPsec packet offload) through the system DOCA Flow; needs -Denable_doca=disabled')

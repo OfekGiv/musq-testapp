@@ -1,5 +1,7 @@
 #include "stats.hpp"
 #include "config.hpp"
+#include "esp_hw.hpp"
+#include "lane_epoch.hpp"
 
 #include <fmt/format.h>
 
@@ -148,6 +150,13 @@ CoreSnapshot StatsReporter::snapshot(const WorkerCtx &w) const
     s.req_lost = LD(req_lost);
     s.tx_batch_capped = LD(tx_batch_capped);
 #undef LD
+    for (unsigned l = 0; l < w.nb_tx_lanes; l++) {
+        uint64_t db = 0;
+        if (!lane_doorbells(w.port_id, w.txbuf[l].queue_id, &db))
+            break;
+        s.doorbells += db;
+        s.have_doorbells = true;
+    }
     return s;
 }
 
@@ -267,14 +276,19 @@ void StatsReporter::report_summary(const struct rte_eth_stats &s, uint64_t windo
     const uint64_t tx_d = s.opackets - prev.opackets, rx_d = s.ipackets - prev.ipackets;
     const uint64_t txb_d = s.obytes - prev.obytes, rxb_d = s.ibytes - prev.ibytes;
     const uint64_t drops = tx_t > rx_t ? tx_t - rx_t : 0;
-    /* +4 B FCS per packet: report line rate on the wire, like TRex. */
-    const double tx_gbps = window_s > 0 ? (txb_d + 4.0 * tx_d) * 8 / window_s / 1e9 : 0;
+    /* +4 B FCS per packet: report line rate on the wire, like TRex. With
+     * --esp-encap hw the port counts the plain frames the lcores send; the NIC
+     * adds the ESP encapsulation after that, so add it here too. */
+    const double tx_extra = 4.0 + (st_->cfg.esp_hw ? esp_hw_lengths(st_->cfg.frame_size).wire_content -
+                                                      esp_hw_lengths(st_->cfg.frame_size).plain_content : 0);
+    const double tx_gbps = window_s > 0 ? (txb_d + tx_extra * tx_d) * 8 / window_s / 1e9 : 0;
     const double rx_gbps = window_s > 0 ? (rxb_d + 4.0 * rx_d) * 8 / window_s / 1e9 : 0;
     const double avg_tx_pps = elapsed_s_ > 0 ? tx_t / elapsed_s_ : 0;
     const double avg_rx_pps = elapsed_s_ > 0 ? rx_t / elapsed_s_ : 0;
 
     KvTable t;
-    t.add("TX total", fmt::format("{} pkts  {} bytes", group_u64(tx_t), group_u64(txb_t)));
+    t.add("TX total", fmt::format("{} pkts  {} bytes{}", group_u64(tx_t), group_u64(txb_t),
+                                  st_->cfg.esp_hw ? " (plain, before the NIC's ESP encapsulation)" : ""));
     t.add("RX total", fmt::format("{} pkts  {} bytes", group_u64(rx_t), group_u64(rxb_t)));
     t.add("Drops (TX-RX)", fmt::format("{}  ({:.4f}%)", group_u64(drops), tx_t ? 100.0 * drops / tx_t : 0.0));
     t.add("TX pps", fmt::format("{}  (run avg {})", group_u64(static_cast<uint64_t>(rate(tx_d))),
@@ -458,6 +472,7 @@ void StatsReporter::report_cores(uint64_t window_tsc, double window_s, bool is_f
         DIFF(rx_pkts); DIFF(tx_pkts); DIFF(tx_drops); DIFF(rx_bursts); DIFF(rx_full_bursts);
         DIFF(non_ipv4); DIFF(work_cycles); DIFF(cycles_used); DIFF(cycles_wasted);
         DIFF(req_sent); DIFF(resp_matched); DIFF(resp_unmatched); DIFF(req_lost); DIFF(tx_batch_capped);
+        DIFF(doorbells);
 #undef DIFF
         core_prev_[i] = cur[i];
     }
@@ -481,6 +496,16 @@ void StatsReporter::report_cores(uint64_t window_tsc, double window_s, bool is_f
     row("TX pkts", [&](unsigned i) { return group_u64(tot[i].tx_pkts); });
     row("  TX pkts (+win)", [&](unsigned i) { return group_u64(del[i].tx_pkts); });
     row("TX drops", [&](unsigned i) { return fmt_total_delta(tot[i].tx_drops, del[i].tx_drops); });
+    if (nw != 0 && cur[0].have_doorbells) {
+        /* What the PMD wrote to the doorbell register for this core's TX
+         * queues. At one packet per WQE, packets per doorbell is WQEs per
+         * doorbell. */
+        row("TX doorbells/s", [&](unsigned i) { return group_u64(rate(del[i].doorbells)); });
+        row("TX pkts/doorbell", [&](unsigned i) {
+            return del[i].doorbells ? fmt::format("{:.1f}", static_cast<double>(del[i].tx_pkts) / del[i].doorbells)
+                                    : std::string("-");
+        });
+    }
     const bool requester = st_->cfg.role == Role::Requester;
     if (requester) {
         row("Req sent", [&](unsigned i) { return fmt_total_delta(tot[i].req_sent, del[i].req_sent); });
@@ -523,6 +548,8 @@ void StatsReporter::report_cores(uint64_t window_tsc, double window_s, bool is_f
         csv_row("core", id, "rx_packets", tot[i].rx_pkts, del[i].rx_pkts, static_cast<double>(rate(del[i].rx_pkts)));
         csv_row("core", id, "tx_packets", tot[i].tx_pkts, del[i].tx_pkts, static_cast<double>(rate(del[i].tx_pkts)));
         csv_row("core", id, "tx_drops", tot[i].tx_drops, del[i].tx_drops, 0);
+        if (cur[i].have_doorbells)
+            csv_row("core", id, "tx_doorbells", tot[i].doorbells, del[i].doorbells, static_cast<double>(rate(del[i].doorbells)));
         csv_row("core", id, "non_ipv4", tot[i].non_ipv4, del[i].non_ipv4, 0);
         csv_row("core", id, "rx_bursts", tot[i].rx_bursts, del[i].rx_bursts, 0);
         csv_row("core", id, "rx_full_bursts", tot[i].rx_full_bursts, del[i].rx_full_bursts, 0);
