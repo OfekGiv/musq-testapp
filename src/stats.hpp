@@ -57,6 +57,9 @@ private:
      * (dropped in the NIC before any RX queue). */
     int64_t sum_ids_[2] = {-1, -1};
     uint64_t sum_base_[2] = {0, 0}, sum_prev_[2] = {0, 0};
+    /* --rx-queues > 1: xstat ids of rx_q<N>_packets for every RX queue, to
+     * show how RSS split the traffic (empty when the PMD lacks them). */
+    std::vector<uint64_t> rxq_ids_, rxq_base_, rxq_prev_;
     FILE *csv_ = nullptr;
 };
 

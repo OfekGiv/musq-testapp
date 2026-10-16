@@ -88,7 +88,13 @@ int responder_loop(void *arg)
     WorkerCtx *w = &st->workers[widx];
     WorkerStats &s = w->stats;
     const AppConfig &cfg = st->cfg;
-    const uint16_t port = w->port_id, queue = w->queue_id;
+    const uint16_t port = w->port_id;
+    /* RX queues rxq0 .. rxq_end - 1, one burst from each in turn (--rx-queues);
+     * TX goes to this worker's own queue(s) whichever RX queue it came from. */
+    const uint16_t rxq0 = w->queue_id, rxq_end = static_cast<uint16_t>(rxq0 + w->nb_rx_queues);
+    const bool multi_rxq = w->nb_rx_queues > 1;
+    const uint16_t txq = w->txbuf[0].queue_id;
+    uint16_t rxq = rxq0;
     const uint16_t rx_burst = cfg.rx_burst, tx_burst = cfg.tx_burst;
     const uint16_t nb_lanes = w->nb_tx_lanes;
     const bool accumulate = cfg.tx_mode == TxMode::Accumulate;
@@ -101,7 +107,7 @@ int responder_loop(void *arg)
 
     /* Keep this exact wording: the TRex harness waits for it. */
     APP_LOG_INFO("entering main loop on lcore %u (worker %u, port %u, queue %u)",
-                 lcore_id, w->worker_idx, port, queue);
+                 lcore_id, w->worker_idx, port, rxq0);
 
     uint64_t prev_drain = rte_rdtsc();
     s.loop_start_tsc = prev_drain;
@@ -136,7 +142,9 @@ int responder_loop(void *arg)
             prev_drain = t0;
         }
 
-        const uint16_t nb_rx = rte_eth_rx_burst(port, queue, pkts, rx_burst);
+        const uint16_t nb_rx = rte_eth_rx_burst(port, rxq, pkts, rx_burst);
+        if (unlikely(multi_rxq))
+            rxq = static_cast<uint16_t>(rxq + 1 == rxq_end ? rxq0 : rxq + 1);
         if (nb_rx == 0) {
             s.cycles_wasted += rte_rdtsc() - t0;
             continue;
@@ -197,7 +205,7 @@ int responder_loop(void *arg)
                     flush_lane(w, w->txbuf[l]);
         } else if (!accumulate) {
             /* nb_rx <= rx_burst <= tx_burst: one call, at most one group. */
-            tx_send(w, queue, pkts, nb_rx);
+            tx_send(w, txq, pkts, nb_rx);
         } else {
             WorkerCtx::TxBuf &b = w->txbuf[0];
             for (uint16_t i = 0; i < nb_rx; i++) {

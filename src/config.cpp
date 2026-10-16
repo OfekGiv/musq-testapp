@@ -222,6 +222,7 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
         ("rx-record", "requester: record each lcore's responses in arrival order to <prefix>.w<worker>.{data,idx,json} at exit (needs --tx-file; compare with scripts/stream_compare.py)", cxxopts::value<std::string>()->default_value(""))
         ("pkts-per-wqe", "Packets per TX WQE: 32 (default; mu_sq 32-packet slots / eMPW) or 1 (one packet per WQE: mu_sq 1-WQEBB slots, needs the 1-packet PMD build that scripts/run.sh selects; without mu_sq adds txq_mpw_en=0)", cxxopts::value<unsigned>()->default_value("32"))
         ("tx-lanes", "responder, one worker lcore: TX queues (mu_sq lanes) that lcore posts to, dealing the packets to them in turn (packet i to lane i % n), each lane with its own buffer and rte_eth_tx_burst calls: one core doing the TX work of n. A power of 2 <= 8; --musq-group auto then is n. (One lcore with ONE TX queue that drives every lane of a group itself is --tx-lanes 1 --musq-group <lanes>.)", cxxopts::value<unsigned>()->default_value("1"))
+        ("rx-queues", "responder, --doca-mode none: RX queues per worker lcore, polled in turn (one rte_eth_rx_burst per queue per loop pass); RSS spreads the traffic over all workers' queues. TX is unchanged: one TX queue per worker, or --tx-lanes. At most 8", cxxopts::value<unsigned>()->default_value("1"))
         ("db-wqes", "responder with mu_sq: WQEs (mu_sq slots) a lane posts per doorbell. The PMD then rings the doorbell every that many WQEs, wherever a burst ends, instead of once per send pass (mlx5 devarg mu_sq_db_wqes; at most half the slots a lane has in the ring). A lane that posts nothing for --tx-drain-us rings what is held back. 0 = the PMD's own rule", cxxopts::value<unsigned>()->default_value("0"))
         ("lane-epoch-us", "responder: record each lane's cumulative RX/TX packets, busy/idle CPU cycles and WQ position (wqe_ci/pi/free, slots) once per epoch of this many us on a common TSC grid, dumped as CSV at exit (0 = off; the WQ columns need the prom-dpdk mlx5 PMD, DOCA build)", cxxopts::value<uint64_t>()->default_value("0"))
         ("lane-epoch-out", "CSV file for --lane-epoch-us", cxxopts::value<std::string>()->default_value("lane_epoch.csv"))
@@ -334,6 +335,7 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
     cfg.tracker_size = r["tracker-size"].as<uint32_t>();
     cfg.pkts_per_wqe = r["pkts-per-wqe"].as<unsigned>();
     cfg.tx_lanes = r["tx-lanes"].as<unsigned>();
+    cfg.rx_queues = r["rx-queues"].as<unsigned>();
     cfg.db_wqes = r["db-wqes"].as<unsigned>();
     cfg.lane_epoch_us = r["lane-epoch-us"].as<uint64_t>();
     cfg.lane_epoch_out = r["lane-epoch-out"].as<std::string>();
@@ -398,6 +400,11 @@ bool validate_config(const AppConfig &cfg)
     }
     if (cfg.tx_lanes > 1 && (nw != 1 || cfg.role != Role::Responder))
         fail("--tx-lanes > 1 needs the responder role and exactly one worker lcore");
+    if (cfg.rx_queues == 0 || cfg.rx_queues > MAX_RX_QUEUES)
+        fail(fmt::format("--rx-queues {} must be in 1..{}", cfg.rx_queues, MAX_RX_QUEUES));
+    if (cfg.rx_queues > 1 && (cfg.role != Role::Responder || cfg.doca_enabled()))
+        fail("--rx-queues > 1 needs the responder role and --doca-mode none "
+             "(the DOCA pipelines and the requester's flow rules steer to one queue per worker)");
     const unsigned grp = cfg.musq_group_eff();
     const unsigned ntxq = cfg.nb_tx_queues();
     if (grp != 0 && (!is_pow2(grp) || grp > MUSQ_MAX_GROUP))
@@ -535,8 +542,8 @@ void print_resolved_config(const AppConfig &cfg, const std::vector<std::string> 
     printf("  pci=%s devargs='%s' musq_group=%u doca_mode=%s doca_group=%u\n",
            cfg.pci.c_str(), musq_devargs(cfg).c_str(), cfg.musq_group_eff(),
            doca_mode_name(cfg.doca_mode), cfg.doca_group);
-    printf("  main_lcore=%u workers=[%s] role=%s pkts_per_wqe=%u tx_lanes=%u db_wqes=%u\n", cfg.main_lcore, lc.c_str(),
-           role_name(cfg.role), cfg.pkts_per_wqe, cfg.tx_lanes, cfg.db_wqes);
+    printf("  main_lcore=%u workers=[%s] role=%s pkts_per_wqe=%u rx_queues=%u tx_lanes=%u db_wqes=%u\n", cfg.main_lcore,
+           lc.c_str(), role_name(cfg.role), cfg.pkts_per_wqe, cfg.rx_queues, cfg.tx_lanes, cfg.db_wqes);
     printf("  rx_burst=%u tx_burst=%u tx_mode=%s tx_drain_us=%lu rxd=%u txd=%u pool=%s promisc=%d\n",
            cfg.rx_burst, cfg.tx_burst, tx_mode_name(cfg.tx_mode),
            static_cast<unsigned long>(cfg.tx_drain_us), cfg.rxd, cfg.txd,

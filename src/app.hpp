@@ -30,6 +30,8 @@ constexpr uint16_t MUSQ_EMPW_PKTS = 32;
 constexpr uint16_t MUSQ_MAX_GROUP = 128; /* MLX5_MU_SQ_LOG_GRP_MAX_SIZE = 7 */
 /* Most TX queues (mu_sq lanes) one responder lcore can post to (--tx-lanes). */
 constexpr unsigned MAX_TX_LANES = 8;
+/* Most RX queues one responder lcore polls (--rx-queues). */
+constexpr unsigned MAX_RX_QUEUES = 8;
 
 enum class DocaMode { None, MetaRr, EspRr };
 enum class TxMode { Immediate, Accumulate };
@@ -117,6 +119,11 @@ struct AppConfig {
      * to, dealing the packets to them in turn. 1 = one TX queue per worker. */
     unsigned tx_lanes = 1;
 
+    /* Responder, --doca-mode none: RX queues per worker lcore, polled in
+     * turn; RSS spreads the traffic over all workers' queues. TX is not
+     * affected (one TX queue per worker, or --tx-lanes). */
+    unsigned rx_queues = 1;
+
     /* Responder with mu_sq: the PMD rings a lane's doorbell once every this
      * many WQEs (mu_sq slots) the lane posts, through the mlx5 devarg
      * mu_sq_db_wqes. 0 = the PMD's own rule, one doorbell per send pass. */
@@ -129,6 +136,7 @@ struct AppConfig {
 
     unsigned nb_workers() const { return static_cast<unsigned>(lcores.size()); }
     bool doca_enabled() const { return doca_mode != DocaMode::None; }
+    unsigned nb_rx_queues() const { return nb_workers() * rx_queues; }
     unsigned nb_tx_queues() const { return nb_workers() * tx_lanes; }
     /* Effective mu_sq group size: 0 = feature off. */
     unsigned musq_group_eff() const {
@@ -179,7 +187,8 @@ struct alignas(RTE_CACHE_LINE_SIZE) WorkerCtx {
     unsigned lcore_id = 0;
     uint16_t worker_idx = 0;
     uint16_t port_id = 0;
-    uint16_t queue_id = 0;                 /* RX queue; with one TX lane also the TX queue */
+    uint16_t queue_id = 0;                 /* first RX queue; with one RX queue and one TX lane also the TX queue */
+    uint16_t nb_rx_queues = 1;             /* RX queues queue_id .. queue_id + n - 1, polled in turn */
     Role role = Role::Responder;
     struct rte_mempool *pool = nullptr;
     /* Responder TX: one buffer per TX queue (lane) this lcore posts to. */

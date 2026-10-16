@@ -75,7 +75,8 @@ int setup_workers(AppState &st)
         w.lcore_id = lcore;
         w.worker_idx = static_cast<uint16_t>(idx);
         w.port_id = st.port_id;
-        w.queue_id = static_cast<uint16_t>(idx);
+        w.queue_id = static_cast<uint16_t>(idx * st.cfg.rx_queues);
+        w.nb_rx_queues = static_cast<uint16_t>(st.cfg.rx_queues);
         w.role = st.cfg.role;
         w.nb_tx_lanes = static_cast<uint16_t>(st.cfg.tx_lanes);
         w.next_lane = 0;
@@ -102,12 +103,13 @@ int setup_workers(AppState &st)
     return 0;
 }
 
-static unsigned pool_size_for(const AppConfig &cfg, unsigned nb_queues)
+static unsigned pool_size_for(const AppConfig &cfg, unsigned nb_workers)
 {
-    /* Per queue: RX ring + TX ring in flight + bursts in the app; then some
-     * headroom, rounded to 2^n - 1 (optimum for rte_mempool). */
-    uint64_t n = static_cast<uint64_t>(nb_queues) * (cfg.rxd + cfg.tx_lanes * (cfg.txd + MAX_BURST) + MAX_BURST) +
-                 static_cast<uint64_t>(nb_queues) * RTE_MEMPOOL_CACHE_MAX_SIZE;
+    /* Per worker: its RX rings + TX rings in flight + bursts in the app; then
+     * some headroom, rounded to 2^n - 1 (optimum for rte_mempool). */
+    uint64_t n = static_cast<uint64_t>(nb_workers) *
+                     (cfg.rx_queues * cfg.rxd + cfg.tx_lanes * (cfg.txd + MAX_BURST) + MAX_BURST) +
+                 static_cast<uint64_t>(nb_workers) * RTE_MEMPOOL_CACHE_MAX_SIZE;
     n = n + n / 4;
     if (n < 8192)
         n = 8192;
@@ -182,7 +184,7 @@ int configure_port(AppState &st)
 {
     const AppConfig &cfg = st.cfg;
     const uint16_t port = st.port_id;
-    const uint16_t nq = static_cast<uint16_t>(st.nb_workers);
+    const uint16_t nq = static_cast<uint16_t>(st.nb_workers * cfg.rx_queues);
     const uint16_t ntxq = static_cast<uint16_t>(st.nb_workers * cfg.tx_lanes);
     struct rte_eth_dev_info dev_info;
     int ret = rte_eth_dev_info_get(port, &dev_info);
@@ -250,12 +252,19 @@ int configure_port(AppState &st)
         }
         struct rte_eth_rxconf rxconf = dev_info.default_rxconf;
         rxconf.offloads = conf.rxmode.offloads;
-        ret = rte_eth_rx_queue_setup(port, w.queue_id, rxd, socket, &rxconf, w.pool);
-        if (ret < 0) {
-            APP_LOG_ERR("rte_eth_rx_queue_setup(%u, q%u): %s", port, w.queue_id, rte_strerror(-ret));
-            return -1;
+        for (unsigned k = 0; k < w.nb_rx_queues; k++) {
+            const uint16_t q = static_cast<uint16_t>(w.queue_id + k);
+            ret = rte_eth_rx_queue_setup(port, q, rxd, socket, &rxconf, w.pool);
+            if (ret < 0) {
+                APP_LOG_ERR("rte_eth_rx_queue_setup(%u, q%u): %s", port, q, rte_strerror(-ret));
+                return -1;
+            }
         }
-        if (w.nb_tx_lanes == 1)
+        if (w.nb_rx_queues > 1)
+            APP_LOG_INFO("lcore %u: port %u rx queues %u..%u (polled in turn), tx queue(s) %u..%u, pool %s, socket %u",
+                         w.lcore_id, port, w.queue_id, w.queue_id + w.nb_rx_queues - 1, w.txbuf[0].queue_id,
+                         w.txbuf[w.nb_tx_lanes - 1].queue_id, w.pool->name, socket);
+        else if (w.nb_tx_lanes == 1)
             APP_LOG_INFO("lcore %u: port %u queue %u (rx+tx), pool %s, socket %u",
                          w.lcore_id, port, w.queue_id, w.pool->name, socket);
         else

@@ -100,6 +100,9 @@ scripts/run.sh --lcores 2,4,6,8 --doca-mode esp_rr --work fixed:3000 --stats-int
 # plain RSS baseline, no mu_sq, no DOCA (run.sh switches to build-nodoca/)
 scripts/run.sh --lcores 2,4,6,8 --doca-mode none --musq-group 0
 
+# one core polling two RSS queues (like testpmd --rxq=2 --nb-cores=1)
+scripts/run.sh --lcores 20 --doca-mode none --musq-group 0 --rx-queues 2
+
 # show the resolved config and EAL argv without touching the NIC
 build/musq-testapp --lcores 2,4 --dry-run
 ```
@@ -116,6 +119,7 @@ ready signal the TRex harness waits for; it needs `--log-level 7` (the default).
 | `--devargs` | | extra mlx5 devargs, appended after `mu_sq_log_grp_size` |
 | `--musq-group` | `auto` | mu_sq group size: `auto` = number of TX queues (workers × `--tx-lanes`), `0` = off, or a power of 2 ≤ 128. With one worker and `--tx-lanes 1`, a group of several lanes is driven by that worker's single TX queue (see "One core, two lanes") |
 | `--tx-lanes` | 1 | responder, one worker lcore: TX queues (mu_sq lanes) that lcore posts to, dealing the packets to them in turn. A power of 2 ≤ 8 |
+| `--rx-queues` | 1 | responder, `--doca-mode none`: RX queues per worker lcore, one `rte_eth_rx_burst` from each in turn; RSS spreads the traffic over all workers' queues, and the port report shows each queue's share. TX is unchanged (the worker's TX queue, or `--tx-lanes`). At most 8 |
 | `--db-wqes` | 0 | responder with mu_sq: WQEs a lane posts per doorbell. The PMD then rings the lane's doorbell every that many WQEs (mu_sq slots), wherever a burst ends, instead of once per send pass (mlx5 devarg `mu_sq_db_wqes`; at most half the slots a lane has in the ring). `0` keeps the PMD's rule. See "Doorbell rate" |
 | `-l, --lcores` | required | worker lcores (`2,4,6,8` or `2-8`); one RX + one TX queue each, queue id = worker index |
 | `--main-lcore` | `0` | EAL main lcore (stats only) |

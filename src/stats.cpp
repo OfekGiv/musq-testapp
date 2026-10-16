@@ -181,6 +181,22 @@ int StatsReporter::init(AppState &st)
             }
             xs_base_.assign(n, 0);
             xs_prev_.assign(n, 0);
+            if (st.cfg.rx_queues > 1) {
+                for (unsigned q = 0; q < st.cfg.nb_rx_queues(); q++) {
+                    const std::string want = fmt::format("rx_q{}_packets", q);
+                    for (int i = 0; i < n; i++)
+                        if (want == names[i].name) {
+                            rxq_ids_.push_back(static_cast<uint64_t>(i));
+                            break;
+                        }
+                }
+                if (rxq_ids_.size() != st.cfg.nb_rx_queues()) {
+                    APP_LOG_WARN("port %u has no rx_q<N>_packets xstat for every RX queue; no per-queue RX rows", port);
+                    rxq_ids_.clear();
+                }
+                rxq_base_.assign(rxq_ids_.size(), 0);
+                rxq_prev_.assign(rxq_ids_.size(), 0);
+            }
         }
     }
     core_base_.assign(st.nb_workers, CoreSnapshot{});
@@ -217,6 +233,10 @@ void StatsReporter::rebase()
             xs_prev_ = vals;
         }
     }
+    if (!rxq_ids_.empty() &&
+        rte_eth_xstats_get_by_id(st_->port_id, rxq_ids_.data(), rxq_base_.data(),
+                                 static_cast<unsigned>(rxq_ids_.size())) == static_cast<int>(rxq_ids_.size()))
+        rxq_prev_ = rxq_base_;
     for (unsigned i = 0; i < st_->nb_workers; i++) {
         core_base_[i] = snapshot(st_->workers[i]);
         core_prev_[i] = core_base_[i];
@@ -405,6 +425,16 @@ void StatsReporter::report_port(const struct rte_eth_stats &s_in, uint64_t windo
     t.add("RX errors", fmt_total_delta(s.ierrors - base.ierrors, s.ierrors - prev.ierrors));
     t.add("RX missed", fmt_total_delta(s.imissed - base.imissed, s.imissed - prev.imissed));
     t.add("RX nombuf", fmt_total_delta(s.rx_nombuf - base.rx_nombuf, s.rx_nombuf - prev.rx_nombuf));
+    /* --rx-queues > 1: how RSS split the traffic over the queues. */
+    std::vector<uint64_t> rxq(rxq_ids_.size());
+    const bool have_rxq = !rxq_ids_.empty() &&
+        rte_eth_xstats_get_by_id(st_->port_id, rxq_ids_.data(), rxq.data(),
+                                 static_cast<unsigned>(rxq_ids_.size())) == static_cast<int>(rxq_ids_.size());
+    if (have_rxq)
+        for (std::size_t q = 0; q < rxq.size(); q++) {
+            const uint64_t d = rxq[q] - rxq_prev_[q];
+            t.add(fmt::format("  RX q{} pkts", q).c_str(), fmt_counter(rxq[q] - rxq_base_[q], d, rate(d)));
+        }
     t.add("TX pkts", fmt_counter(s.opackets - base.opackets, tx_d, tx_pps));
     t.add("TX bytes", fmt::format("{}  [{}]", fmt_total_delta(s.obytes - base.obytes, txb_d), fmt_bandwidth(txb_d, window_s)));
     t.add("TX errors", fmt_total_delta(s.oerrors - base.oerrors, s.oerrors - prev.oerrors));
@@ -419,6 +449,12 @@ void StatsReporter::report_port(const struct rte_eth_stats &s_in, uint64_t windo
     csv_row("port", id, "tx_packets", s.opackets - base.opackets, tx_d, static_cast<double>(tx_pps));
     csv_row("port", id, "tx_bytes", s.obytes - base.obytes, txb_d, window_s > 0 ? txb_d / window_s : 0);
     csv_row("port", id, "tx_errors", s.oerrors - base.oerrors, s.oerrors - prev.oerrors, 0);
+    if (have_rxq) {
+        for (std::size_t q = 0; q < rxq.size(); q++)
+            csv_row("port", fmt::format("{}q{}", id, q), "rx_packets", rxq[q] - rxq_base_[q], rxq[q] - rxq_prev_[q],
+                    static_cast<double>(rate(rxq[q] - rxq_prev_[q])));
+        rxq_prev_ = rxq;
+    }
     prev = s;
 }
 
