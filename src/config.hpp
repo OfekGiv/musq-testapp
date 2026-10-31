@@ -24,6 +24,8 @@ const char *doca_mode_name(DocaMode m);
 const char *tx_mode_name(TxMode m);
 const char *swap_mode_name(SwapMode m);
 const char *role_name(Role r);
+const char *dist_order_name(DistOrder o);
+const char *dist_deal_name(DistDeal d);
 const char *rx_steer_name(RxSteer s);
 const char *tx_fill_name(TxFill f);
 const char *xstats_mode_name(XstatsMode m);

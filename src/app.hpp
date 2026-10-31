@@ -28,10 +28,15 @@ constexpr uint16_t MAX_BURST = 512;
 /* mlx5 mu_sq eMPW slot size (MLX5_MU_EMPW_PKTS in drivers/net/mlx5/mlx5.h). */
 constexpr uint16_t MUSQ_EMPW_PKTS = 32;
 constexpr uint16_t MUSQ_MAX_GROUP = 128; /* MLX5_MU_SQ_LOG_GRP_MAX_SIZE = 7 */
+/* Most mu_sq groups (shared rings) on the port; the NIC's hash pipe needs a
+ * power of 2 of them. */
+constexpr unsigned MUSQ_MAX_GROUPS = 64;
 /* Most TX queues (mu_sq lanes) one responder lcore can post to (--tx-lanes). */
 constexpr unsigned MAX_TX_LANES = 8;
 /* Most RX queues one responder lcore polls (--rx-queues). */
 constexpr unsigned MAX_RX_QUEUES = 8;
+/* Most worker lcores one software-distributor master deals to (--masters). */
+constexpr unsigned MAX_DIST_WORKERS = 16;
 
 enum class DocaMode { None, MetaRr, EspRr };
 enum class TxMode { Immediate, Accumulate };
@@ -44,6 +49,13 @@ enum class TrafficKind { Udp, Esp };
 enum class RxSteer { Flow, Rss, None };
 /* Requester: how a request frame is produced from the template. */
 enum class TxFill { Prefill, Copy };
+/* Software distributor (--masters): how a master restores the arrival order
+ * (rr: deal and collect round robin, the order is implicit; seqn: sequence
+ * numbers and a reorder buffer), which worker gets the next chunk (rr, or lb =
+ * the one with the fewest packets in flight), and an lcore's part in it. */
+enum class DistOrder { Rr, Seqn };
+enum class DistDeal { Rr, Lb };
+enum class DistRole { None, Master, Worker, TxMaster };
 
 struct WorkSpec {
     WorkKind kind = WorkKind::Fixed;
@@ -55,7 +67,16 @@ struct WorkSpec {
 struct AppConfig {
     std::string pci = "0000:17:00.1";
     std::string devargs;            /* extra mlx5 devargs */
-    int musq_group = -1;            /* -1 = auto (nb workers), 0 = off */
+    int musq_group = -1;            /* lanes per group: -1 = auto (TX queues / groups), 0 = off */
+    /* mu_sq groups on the port, each its own shared ring: group g = TX queues
+     * g*N .. g*N+N-1 (N = musq_group_eff()); the PMD derives the count from
+     * the TX queues and the group size. In a DOCA mode the NIC hashes a flow
+     * (outer IPv4 src + dst) to one group and round-robins inside it. */
+    unsigned musq_groups = 1;
+    /* --hash-probe: log at start which group the flows src..src+n-1 -> dst
+     * land in (the requester's src_ip + lcore index convention). */
+    std::string hash_probe_src, hash_probe_dst;
+    unsigned hash_probe_n = 0;
     std::vector<unsigned> lcores;   /* worker lcores */
     unsigned main_lcore = 0;
     DocaMode doca_mode = DocaMode::EspRr;
@@ -100,6 +121,20 @@ struct AppConfig {
      * frames and the NIC encapsulates and encrypts them (IPsec packet offload,
      * see esp_hw.hpp), with the sequence number counted by the NIC. */
     bool esp_hw = false;
+    /* --esp-encap hw: one IPsec SA, i.e. one SPI and one NIC sequence-number
+     * counter, per lcore (true; SPI = esp_spi + lcore index, which the sw
+     * encap writes as well) or one SA for the whole port (false, the original
+     * mode: one SN stream over all lcores). */
+    bool esp_sa_per_lcore = true;
+    uint32_t esp_spi = 0x1000;
+    /* Explicit source IPv4 per lcore (as many as lcores) instead of
+     * src_ip + lcore index: to pick flows that land in distinct mu_sq groups
+     * of the responder (its --hash-probe). */
+    std::vector<std::string> src_ips;
+    /* --traffic esp: check that each lcore's responses come back with
+     * increasing ESP sequence numbers (the SPI and SN are clear text, also
+     * with hw encap), counting reorders and gaps: the order proof. */
+    bool esp_sn_check = true;
     /* Stream correctness test: every requester lcore sends this file once, as
      * its own flow, one chunk per request ([8 B chunk index][file bytes]), and
      * stops sending when it is done. */
@@ -129,6 +164,28 @@ struct AppConfig {
      * mu_sq_db_wqes. 0 = the PMD's own rule, one doorbell per send pass. */
     unsigned db_wqes = 0;
 
+    /* Software distributor (responder): master lcores that receive, deal the
+     * packets to the worker lcores (--lcores, split evenly among the masters in
+     * lcore order) over rings, take them back in arrival order and send them
+     * on their own TX queue; the workers only process packets. Empty = off,
+     * every lcore in --lcores runs the whole path itself (see dist.hpp). */
+    std::vector<unsigned> masters;
+    /* --tx-masters: one lcore per master, paired in lcore order, that takes
+     * over the collecting and sending half of that master (a two-stage
+     * pipeline); the master then only receives and deals. Empty = off. */
+    std::vector<unsigned> tx_masters;
+    DistOrder dist_order = DistOrder::Rr;
+    DistDeal dist_deal = DistDeal::Rr;
+    unsigned dist_chunk = 32;   /* consecutive packets dealt to one worker before moving on */
+    unsigned dist_ring = 2048;  /* entries of each master <-> worker ring (power of 2) */
+    /* --dist-self: the master processes up to this many packets per deal
+     * cycle itself (one more slot in the round robin) whenever a worker has
+     * at least dist_self_backlog packets outstanding, i.e. the workers are
+     * the limit and the master has cycles to spare. 0 = off. */
+    unsigned dist_self = 0;
+    unsigned dist_self_backlog = 128;  /* tokens waiting in some worker's input ring */
+    unsigned dist_self_idle = 5;       /* percent of the master's recent passes that were idle */
+
     /* per-epoch lane status log (responder; needs the prom-dpdk mlx5 PMD) */
     uint64_t lane_epoch_us = 0;         /* 0 = off */
     uint32_t lane_epoch_max = 120000;   /* records per lane */
@@ -136,12 +193,31 @@ struct AppConfig {
 
     unsigned nb_workers() const { return static_cast<unsigned>(lcores.size()); }
     bool doca_enabled() const { return doca_mode != DocaMode::None; }
-    unsigned nb_rx_queues() const { return nb_workers() * rx_queues; }
-    unsigned nb_tx_queues() const { return nb_workers() * tx_lanes; }
-    /* Effective mu_sq group size: 0 = feature off. */
+    bool dist() const { return !masters.empty(); }
+    bool dist_split() const { return dist() && !tx_masters.empty(); }
+    unsigned nb_masters() const { return static_cast<unsigned>(masters.size()); }
+    unsigned workers_per_master() const { return dist() ? nb_workers() / nb_masters() : 0; }
+    /* Lcores that run a loop: the workers, plus the masters (and their TX
+     * masters) in dist mode. */
+    unsigned nb_lcores() const { return nb_workers() + nb_masters() + static_cast<unsigned>(tx_masters.size()); }
+    /* Queue owners: the masters in dist mode (each with its RX queues and one
+     * TX queue, the latter run by its TX master with --tx-masters), else the
+     * workers. */
+    unsigned nb_queue_lcores() const { return dist() ? nb_masters() : nb_workers(); }
+    unsigned nb_rx_queues() const { return nb_queue_lcores() * rx_queues; }
+    unsigned nb_tx_queues() const { return nb_queue_lcores() * tx_lanes; }
+    /* Effective mu_sq group size (lanes per group): 0 = feature off. Auto is
+     * one lane per TX queue, the queues split evenly over the groups. With
+     * --masters (the software alternative) auto means off; an explicit group
+     * there is refused. */
     unsigned musq_group_eff() const {
-        return musq_group < 0 ? nb_tx_queues() : static_cast<unsigned>(musq_group);
+        if (musq_group < 0)
+            return dist() || musq_groups == 0 ? 0 : nb_tx_queues() / musq_groups;
+        return static_cast<unsigned>(musq_group);
     }
+    /* RX queues per steering group: what the DOCA pipeline round-robins over
+     * inside a group (= the lanes of a group when mu_sq is on). */
+    unsigned group_rx_queues() const { return musq_groups == 0 ? 0 : nb_rx_queues() / musq_groups; }
 };
 
 /* korba request header (request_tracker.hpp), for the phase-2 requester and
@@ -177,11 +253,25 @@ struct alignas(RTE_CACHE_LINE_SIZE) WorkerStats {
     uint64_t rec_chunks = 0;      /* --rx-record: chunks recorded */
     uint64_t rec_bad = 0;         /* --rx-record: frames that carry no chunk */
     uint64_t rec_overflow = 0;    /* --rx-record: chunks beyond the record buffer */
+    /* ESP SN order check (requester, --traffic esp; requester.cpp check_esp_sn) */
+    uint64_t sn_reorder = 0;      /* responses whose SN did not exceed the previous one: order broken */
+    uint64_t sn_gap_pkts = 0;     /* SNs skipped between consecutive responses (lost, or not back yet) */
+    uint64_t sn_max_back = 0;     /* largest backward SN step seen */
+    uint64_t spi_foreign = 0;     /* ESP responses carrying another SPI than this lcore's */
+    /* software distributor (--masters) */
+    uint64_t dealt = 0;           /* master: packets handed to its workers */
+    uint64_t collected = 0;       /* master (or TX master): packets taken back from them */
+    uint64_t rx_held = 0;         /* master: loop passes that skipped RX for lack of ring room */
+    uint64_t stalls = 0;          /* master (or TX master): collect passes blocked by one worker while others' returns wait */
+    uint64_t ring_retries = 0;    /* ring enqueues that had to be retried (0 by construction) */
+    uint64_t self_pkts = 0;       /* master: packets it processed itself (--dist-self) */
 };
 
 struct RequestTracker;
 struct hdr_histogram;
 struct LaneEpochLog;
+struct DistMaster;
+struct DistWorker;
 
 struct alignas(RTE_CACHE_LINE_SIZE) WorkerCtx {
     unsigned lcore_id = 0;
@@ -189,6 +279,10 @@ struct alignas(RTE_CACHE_LINE_SIZE) WorkerCtx {
     uint16_t port_id = 0;
     uint16_t queue_id = 0;                 /* first RX queue; with one RX queue and one TX lane also the TX queue */
     uint16_t nb_rx_queues = 1;             /* RX queues queue_id .. queue_id + n - 1, polled in turn */
+    /* --musq-groups: the group of this lcore's queues (group g = queues
+     * g*N..g*N+N-1) and the lane in it; cold, for logs and the stats table. */
+    uint16_t musq_group = 0;
+    uint16_t lane_in_group = 0;
     Role role = Role::Responder;
     struct rte_mempool *pool = nullptr;
     /* Responder TX: one buffer per TX queue (lane) this lcore posts to. */
@@ -206,6 +300,11 @@ struct alignas(RTE_CACHE_LINE_SIZE) WorkerCtx {
     RequestTracker *tracker = nullptr;     /* requester: this lcore's outstanding requests */
     struct hdr_histogram *rtt_hist = nullptr; /* requester: RTTs of responses received on this lcore (us) */
     LaneEpochLog *epoch_log[MAX_TX_LANES] = {}; /* responder: per-epoch status of each TX lane, written by this lcore only */
+    /* Software distributor (--masters): this lcore's part, None outside the mode. */
+    DistRole dist_role = DistRole::None;
+    uint16_t master_idx = 0;               /* master: its index among the masters; worker, TX master: its master's */
+    DistMaster *dm = nullptr;              /* master and its TX master: links to the workers and the ordering state */
+    DistWorker *dw = nullptr;              /* worker: its two rings */
     WorkerStats stats;
 };
 

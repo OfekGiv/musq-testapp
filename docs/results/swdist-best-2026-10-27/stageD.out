@@ -1,0 +1,153 @@
+== reference point 12:36:12
+12:36:12 matrix start: modes best cores 8 works fixed:0 frame 128 offer 80.0 Mpps, out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/sat-workers/reference
+12:36:27   best  c8 fixed:0    f128: offered 79.99 fwd 34.39 Mpps loss 57.0 % refused 0.000 % | master 100 % 70 cyc, lanes busy 7-8 % cyc 34-38, rx spread 85.7 %
+12:36:29 matrix done
+== saturation, workers 12:36:29
+12:36:29 matrix start: modes bestw cores 2,4,8 works fixed:0,fixed:50,fixed:100,fixed:200,fixed:400,fixed:800,exp:100,exp:200 frame 128 offer 80.0 Mpps, out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/sat-workers
+12:36:43   bestw c2 fixed:0    f128: offered 80.00 fwd 34.19 Mpps loss 57.3 % refused 0.000 % | master 100 % 70 cyc, lanes busy 21-22 % cyc 30-31, rx spread 50.0 %
+12:36:59   bestw c4 fixed:0    f128: offered 79.98 fwd 34.01 Mpps loss 57.5 % refused 0.000 % | master 100 % 70 cyc, lanes busy 13-15 % cyc 36-41, rx spread 75.0 %
+12:37:15   bestw c8 fixed:0    f128: offered 79.96 fwd 34.42 Mpps loss 56.9 % refused 0.000 % | master 100 % 70 cyc, lanes busy 6-7 % cyc 35-40, rx spread 87.5 %
+12:37:31   bestw c2 fixed:50   f128: offered 80.01 fwd 27.05 Mpps loss 66.2 % refused 0.000 % | master 99 % 88 cyc, self 3.37 Mpps, lanes busy 100-100 % cyc 202-202, rx spread 56.2 %
+12:37:47   bestw c4 fixed:50   f128: offered 79.96 fwd 34.31 Mpps loss 57.1 % refused 0.000 % | master 100 % 70 cyc, lanes busy 77-79 % cyc 215-220, rx spread 75.0 %
+12:38:03   bestw c8 fixed:50   f128: offered 79.96 fwd 34.36 Mpps loss 57.0 % refused 0.000 % | master 100 % 70 cyc, lanes busy 39-40 % cyc 217-225, rx spread 87.5 %
+12:38:19   bestw c2 fixed:100  f128: offered 80.03 fwd 17.92 Mpps loss 77.6 % refused 0.000 % | master 99 % 133 cyc, self 3.83 Mpps, lanes busy 100-100 % cyc 340-340, rx spread 60.7 %
+12:38:36   bestw c4 fixed:100  f128: offered 80.02 fwd 29.43 Mpps loss 63.2 % refused 0.000 % | master 99 % 80 cyc, self 1.27 Mpps, lanes busy 100-100 % cyc 340-340, rx spread 76.1 %
+12:38:52   bestw c8 fixed:100  f128: offered 79.96 fwd 33.54 Mpps loss 58.1 % refused 0.000 % | master 100 % 71 cyc, lanes busy 61-63 % cyc 349-362, rx spread 87.5 %
+12:39:08   bestw c2 fixed:200  f128: offered 80.03 fwd 11.83 Mpps loss 85.2 % refused 0.000 % | master 99 % 201 cyc, self 3.07 Mpps, lanes busy 100-100 % cyc 547-547, rx spread 63.0 %
+12:39:24   bestw c4 fixed:200  f128: offered 80.01 fwd 19.59 Mpps loss 75.5 % refused 0.000 % | master 99 % 121 cyc, self 2.08 Mpps, lanes busy 100-100 % cyc 546-547, rx spread 77.7 %
+12:39:40   bestw c8 fixed:200  f128: offered 79.97 fwd 34.31 Mpps loss 57.1 % refused 0.000 % | master 100 % 70 cyc, lanes busy 98-98 % cyc 546-548, rx spread 87.5 %
+12:39:56   bestw c2 fixed:400  f128: offered 80.03 fwd 6.62 Mpps loss 91.7 % refused 0.000 % | master 99 % 360 cyc, self 1.94 Mpps, lanes busy 100-100 % cyc 1023-1023, rx spread 64.7 %
+12:40:12   bestw c4 fixed:400  f128: offered 80.03 fwd 10.99 Mpps loss 86.3 % refused 0.000 % | master 99 % 216 cyc, self 1.64 Mpps, lanes busy 100-100 % cyc 1022-1024, rx spread 78.7 %
+12:40:28   bestw c8 fixed:400  f128: offered 79.96 fwd 19.62 Mpps loss 75.5 % refused 0.000 % | master 99 % 120 cyc, self 0.95 Mpps, lanes busy 100-100 % cyc 1021-1024, rx spread 88.1 %
+12:40:45   bestw c2 fixed:800  f128: offered 80.02 fwd 3.50 Mpps loss 95.6 % refused 0.000 % | master 100 % 682 cyc, self 1.10 Mpps, lanes busy 100-100 % cyc 1995-1997, rx spread 65.7 %
+12:41:01   bestw c4 fixed:800  f128: offered 80.01 fwd 5.81 Mpps loss 92.7 % refused 0.000 % | master 99 % 409 cyc, self 1.01 Mpps, lanes busy 100-100 % cyc 1995-1996, rx spread 79.4 %
+12:41:17   bestw c8 fixed:800  f128: offered 79.96 fwd 10.40 Mpps loss 87.0 % refused 0.000 % | master 99 % 227 cyc, self 0.81 Mpps, lanes busy 100-100 % cyc 1993-1996, rx spread 88.5 %
+12:41:33   bestw c2 exp:100    f128: offered 80.01 fwd 17.38 Mpps loss 78.3 % refused 0.000 % | master 99 % 137 cyc, self 3.73 Mpps, lanes busy 100-100 % cyc 350-350, rx spread 60.7 %
+12:41:49   bestw c4 exp:100    f128: offered 79.98 fwd 28.58 Mpps loss 64.3 % refused 0.000 % | master 98 % 82 cyc, self 1.37 Mpps, lanes busy 100-100 % cyc 350-351, rx spread 76.2 %
+12:42:05   bestw c8 exp:100    f128: offered 79.96 fwd 34.37 Mpps loss 57.0 % refused 0.000 % | master 100 % 70 cyc, lanes busy 66-67 % cyc 366-371, rx spread 87.5 %
+12:42:22   bestw c2 exp:200    f128: offered 80.03 fwd 10.98 Mpps loss 86.3 % refused 0.000 % | master 99 % 217 cyc, self 2.90 Mpps, lanes busy 100-100 % cyc 592-592, rx spread 63.2 %
+12:42:38   bestw c4 exp:200    f128: offered 80.02 fwd 18.16 Mpps loss 77.3 % refused 0.000 % | master 99 % 131 cyc, self 2.04 Mpps, lanes busy 100-100 % cyc 592-592, rx spread 77.8 %
+12:42:54   bestw c8 exp:200    f128: offered 79.97 fwd 32.36 Mpps loss 59.5 % refused 0.000 % | master 99 % 73 cyc, lanes busy 100-100 % cyc 590-592, rx spread 87.5 %
+12:42:56 matrix done
+== rtt 12:42:56
+12:42:56 rtt runs: modes bestw cores 2,4,8 rate 16.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt-workers
+12:43:09   bestw c2: offered 16.01 fwd 16.01 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 10.0 p99 11.0 p99.9 12.0 max 138.0 | cpu avg 46 max 95 %
+12:43:25   bestw c4: offered 16.01 fwd 16.01 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 10.0 p99 11.0 p99.9 12.0 max 125.0 | cpu avg 28 max 95 %
+12:43:40   bestw c8: offered 15.99 fwd 15.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 10.0 p99 11.0 p99.9 12.0 max 32.0 | cpu avg 16 max 96 %
+12:43:42 rtt runs done
+12:43:42 rtt runs: modes bestw cores 4,8 rate 30.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt-workers
+12:43:55   bestw c4: offered 30.01 fwd 30.01 Mpps loss -0.00 % matched 100.0 % | RTT us p50 11.0 p90 12.0 p99 13.0 p99.9 14.0 max 55.0 | cpu avg 32 max 100 %
+12:44:10   bestw c8: offered 29.99 fwd 29.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 11.0 p90 12.0 p99 13.0 p99.9 14.0 max 49.0 | cpu avg 18 max 100 %
+12:44:12 rtt runs done
+12:44:12 rtt runs: modes bestw cores 2 rate 0.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt-workers
+12:44:25   bestw c2: offered 0.50 fwd 0.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 5.0 p90 6.0 p99 7.0 p99.9 7.0 max 20.0 | cpu avg 28 max 29 %
+12:44:27 rtt runs done
+12:44:27 rtt runs: modes bestw cores 4 rate 1.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt-workers
+12:44:40   bestw c4: offered 1.50 fwd 1.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 17.0 p90 22.0 p99 24.0 p99.9 26.0 max 45.0 | cpu avg 38 max 40 %
+12:44:42 rtt runs done
+12:44:42 rtt runs: modes bestw cores 8 rate 4.0 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt-workers
+12:44:56   bestw c8: offered 4.00 fwd 4.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 30.0 p90 33.0 p99 35.0 p99.9 37.0 max 157.0 | cpu avg 54 max 65 %
+12:44:58 rtt runs done
+== strict 12:44:58
+== bestw 2 cores fixed:0: saturation 34.19 Mpps, search from 33
+12:44:58 output /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/strict-workers, TRAFFIC=esp
+12:44:58 sweep start, RESP_MODE=bestw RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+12:44:58 case bestw fixed:0: 2 cores, 128 B
+12:45:12   c2 f128  33.00 Mpps ladder   -> PASS      off 33.00 tx 33.00 refused 0.000% rxloss 0.000% cpu avg 47.4 max 100.0
+12:45:28   c2 f128  35.00 Mpps ladder   -> FAIL RX   off 35.00 tx 34.25 refused 0.000% rxloss 2.125% cpu avg 47.8 max 100.0
+12:45:44   c2 f128  34.00 Mpps bisect   -> PASS      off 34.00 tx 34.01 refused 0.000% rxloss 0.000% cpu avg 48.3 max 100.0
+12:46:00   c2 f128  34.50 Mpps bisect   -> FAIL RX   off 34.51 tx 34.27 refused 0.000% rxloss 0.680% cpu avg 47.7 max 100.0
+12:46:16   c2 f128  34.00 Mpps confirm  -> FAIL RX   off 34.00 tx 33.93 refused 0.000% rxloss 0.201% cpu avg 47.7 max 100.0
+12:46:32   c2 f128  33.50 Mpps confirm  -> PASS      off 33.50 tx 33.50 refused 0.000% rxloss 0.000% cpu avg 48.1 max 100.0
+12:46:49   c2 f128  33.50 Mpps confirm  -> PASS      off 33.50 tx 33.50 refused 0.000% rxloss 0.000% cpu avg 47.5 max 100.0
+12:47:05   c2 f128  33.50 Mpps confirm  -> PASS      off 33.50 tx 33.50 refused 0.000% rxloss 0.000% cpu avg 47.7 max 100.0
+12:47:07 case done: bestw fixed:0 2 cores 128 B: max 33.5 Mpps (33.77 Gbps), cpu avg 47.74 max 100.0; next 34.0 fails RX (8 runs)
+12:47:07 sweep done
+== bestw 2 cores fixed:100: saturation 17.92 Mpps, search from 16
+12:47:07 output /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/strict-workers, TRAFFIC=esp
+12:47:07 sweep start, RESP_MODE=bestw RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+12:47:07 case bestw fixed:100: 2 cores, 128 B
+12:47:21   c2 f128  16.00 Mpps ladder   -> PASS      off 16.01 tx 16.01 refused 0.000% rxloss 0.000% cpu avg 96.7 max 100.0
+12:47:37   c2 f128  18.00 Mpps ladder   -> FAIL RX   off 18.01 tx 17.57 refused 0.000% rxloss 2.440% cpu avg 99.5 max 100.0
+12:47:53   c2 f128  17.00 Mpps bisect   -> PASS      off 17.01 tx 17.01 refused 0.000% rxloss 0.000% cpu avg 98.7 max 100.0
+12:48:10   c2 f128  17.50 Mpps bisect   -> FAIL RX   off 17.51 tx 17.48 refused 0.000% rxloss 0.142% cpu avg 99.4 max 100.0
+12:48:26   c2 f128  17.25 Mpps bisect   -> PASS      off 17.26 tx 17.26 refused 0.000% rxloss 0.001% cpu avg 99.1 max 100.0
+12:48:42   c2 f128  17.25 Mpps confirm  -> PASS      off 17.25 tx 17.25 refused 0.000% rxloss 0.002% cpu avg 99.1 max 100.0
+12:48:58   c2 f128  17.25 Mpps confirm  -> PASS      off 17.26 tx 17.26 refused 0.000% rxloss 0.004% cpu avg 99.2 max 100.0
+12:49:00 case done: bestw fixed:100 2 cores 128 B: max 17.25 Mpps (17.39 Gbps), cpu avg 99.12 max 100.0; next 17.5 fails RX (7 runs)
+12:49:00 sweep done
+== bestw 4 cores fixed:0: saturation 34.01 Mpps, search from 33
+12:49:00 output /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/strict-workers, TRAFFIC=esp
+12:49:00 sweep start, RESP_MODE=bestw RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+12:49:00 case bestw fixed:0: 4 cores, 128 B
+12:49:14   c4 f128  33.00 Mpps ladder   -> PASS      off 33.00 tx 33.00 refused 0.000% rxloss 0.000% cpu avg 30.3 max 100.0
+12:49:30   c4 f128  35.00 Mpps ladder   -> FAIL RX   off 35.00 tx 34.02 refused 0.000% rxloss 2.800% cpu avg 30.4 max 100.0
+12:49:46   c4 f128  34.00 Mpps bisect   -> PASS      off 34.00 tx 34.00 refused 0.000% rxloss 0.000% cpu avg 30.5 max 100.0
+12:50:02   c4 f128  34.50 Mpps bisect   -> FAIL RX   off 34.48 tx 34.32 refused 0.000% rxloss 0.464% cpu avg 30.6 max 100.0
+12:50:18   c4 f128  34.00 Mpps confirm  -> PASS      off 34.00 tx 34.00 refused 0.000% rxloss 0.000% cpu avg 30.4 max 100.0
+12:50:34   c4 f128  34.00 Mpps confirm  -> PASS      off 34.00 tx 34.00 refused 0.000% rxloss 0.000% cpu avg 30.5 max 100.0
+12:50:36 case done: bestw fixed:0 4 cores 128 B: max 34.0 Mpps (34.27 Gbps), cpu avg 30.44 max 100.0; next 34.5 fails RX (6 runs)
+12:50:36 sweep done
+== bestw 4 cores fixed:50: saturation 34.31 Mpps, search from 33
+12:50:36 output /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/strict-workers, TRAFFIC=esp
+12:50:36 sweep start, RESP_MODE=bestw RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+12:50:36 case bestw fixed:50: 4 cores, 128 B
+12:50:50   c4 f128  33.00 Mpps ladder   -> PASS      off 32.99 tx 32.99 refused 0.000% rxloss 0.000% cpu avg 80.4 max 100.0
+12:51:06   c4 f128  35.00 Mpps ladder   -> FAIL RX   off 35.00 tx 34.18 refused 0.000% rxloss 2.342% cpu avg 81.8 max 100.0
+12:51:22   c4 f128  34.00 Mpps bisect   -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 81.6 max 100.0
+12:51:38   c4 f128  34.50 Mpps bisect   -> FAIL RX   off 34.51 tx 34.33 refused 0.000% rxloss 0.520% cpu avg 82.1 max 100.0
+12:51:55   c4 f128  34.00 Mpps confirm  -> PASS      off 34.00 tx 34.00 refused 0.000% rxloss 0.000% cpu avg 81.6 max 100.0
+12:52:11   c4 f128  34.00 Mpps confirm  -> PASS      off 34.01 tx 34.01 refused 0.000% rxloss 0.000% cpu avg 81.7 max 100.0
+12:52:13 case done: bestw fixed:50 4 cores 128 B: max 34.0 Mpps (34.27 Gbps), cpu avg 81.63 max 100.0; next 34.5 fails RX (6 runs)
+12:52:13 sweep done
+== bestw 4 cores fixed:100: saturation 29.43 Mpps, search from 28
+12:52:13 output /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/strict-workers, TRAFFIC=esp
+12:52:13 sweep start, RESP_MODE=bestw RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+12:52:13 case bestw fixed:100: 4 cores, 128 B
+12:52:27   c4 f128  28.00 Mpps ladder   -> PASS      off 28.00 tx 28.00 refused 0.000% rxloss 0.000% cpu avg 98.7 max 100.0
+12:52:43   c4 f128  30.00 Mpps ladder   -> FAIL RX   off 29.99 tx 29.31 refused 0.000% rxloss 2.277% cpu avg 99.6 max 100.0
+12:52:59   c4 f128  29.00 Mpps bisect   -> FAIL RX   off 28.99 tx 28.97 refused 0.000% rxloss 0.054% cpu avg 99.2 max 100.0
+12:53:15   c4 f128  28.50 Mpps bisect   -> PASS      off 28.49 tx 28.49 refused 0.000% rxloss 0.000% cpu avg 98.6 max 100.0
+12:53:32   c4 f128  28.50 Mpps confirm  -> PASS      off 28.49 tx 28.49 refused 0.000% rxloss 0.000% cpu avg 98.7 max 100.0
+12:53:48   c4 f128  28.50 Mpps confirm  -> PASS      off 28.50 tx 28.50 refused 0.000% rxloss 0.000% cpu avg 98.7 max 100.0
+12:53:50 case done: bestw fixed:100 4 cores 128 B: max 28.5 Mpps (28.72 Gbps), cpu avg 98.65 max 99.98; next 29.0 fails RX (6 runs)
+12:53:50 sweep done
+== bestw 8 cores fixed:0: saturation 34.42 Mpps, search from 33
+12:53:50 output /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/strict-workers, TRAFFIC=esp
+12:53:50 sweep start, RESP_MODE=bestw RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+12:53:50 case bestw fixed:0: 8 cores, 128 B
+12:54:04   c8 f128  33.00 Mpps ladder   -> PASS      off 32.98 tx 32.98 refused 0.000% rxloss 0.000% cpu avg 16.8 max 100.0
+12:54:20   c8 f128  35.00 Mpps ladder   -> FAIL RX   off 34.98 tx 34.17 refused 0.000% rxloss 2.328% cpu avg 16.9 max 100.0
+12:54:37   c8 f128  34.00 Mpps bisect   -> PASS      off 33.98 tx 33.98 refused 0.000% rxloss 0.000% cpu avg 16.9 max 100.0
+12:54:53   c8 f128  34.50 Mpps bisect   -> FAIL RX   off 34.48 tx 34.29 refused 0.000% rxloss 0.549% cpu avg 17.1 max 100.0
+12:55:09   c8 f128  34.00 Mpps confirm  -> PASS      off 33.98 tx 33.98 refused 0.000% rxloss 0.000% cpu avg 16.9 max 100.0
+12:55:25   c8 f128  34.00 Mpps confirm  -> PASS      off 33.98 tx 33.98 refused 0.000% rxloss 0.000% cpu avg 17.0 max 100.0
+12:55:27 case done: bestw fixed:0 8 cores 128 B: max 34.0 Mpps (34.26 Gbps), cpu avg 16.93 max 100.0; next 34.5 fails RX (6 runs)
+12:55:27 sweep done
+== bestw 8 cores fixed:100: saturation 33.54 Mpps, search from 32
+12:55:27 output /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/strict-workers, TRAFFIC=esp
+12:55:27 sweep start, RESP_MODE=bestw RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+12:55:27 case bestw fixed:100: 8 cores, 128 B
+12:55:41   c8 f128  32.00 Mpps ladder   -> PASS      off 31.99 tx 31.99 refused 0.000% rxloss 0.000% cpu avg 63.8 max 100.0
+12:55:57   c8 f128  34.00 Mpps ladder   -> PASS      off 33.98 tx 33.98 refused 0.000% rxloss 0.000% cpu avg 67.1 max 100.0
+12:56:13   c8 f128  36.00 Mpps ladder   -> FAIL RX   off 35.98 tx 34.15 refused 0.000% rxloss 5.102% cpu avg 67.3 max 100.0
+12:56:30   c8 f128  35.00 Mpps bisect   -> FAIL RX   off 34.98 tx 34.02 refused 0.000% rxloss 2.742% cpu avg 67.4 max 100.0
+12:56:46   c8 f128  34.50 Mpps bisect   -> PASS      off 34.48 tx 34.48 refused 0.000% rxloss 0.000% cpu avg 67.8 max 100.0
+12:57:02   c8 f128  34.50 Mpps confirm  -> FAIL RX   off 34.48 tx 33.60 refused 0.000% rxloss 2.557% cpu avg 66.6 max 100.0
+12:57:18   c8 f128  34.00 Mpps confirm  -> PASS      off 33.98 tx 33.98 refused 0.000% rxloss 0.000% cpu avg 67.0 max 100.0
+12:57:34   c8 f128  34.00 Mpps confirm  -> PASS      off 33.98 tx 33.98 refused 0.000% rxloss 0.000% cpu avg 67.1 max 100.0
+12:57:36 case done: bestw fixed:100 8 cores 128 B: max 34.0 Mpps (34.26 Gbps), cpu avg 67.05 max 100.0; next 34.5 fails RX (8 runs)
+12:57:36 sweep done
+== bestw 8 cores fixed:200: saturation 34.31 Mpps, search from 33
+12:57:36 output /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/strict-workers, TRAFFIC=esp
+12:57:36 sweep start, RESP_MODE=bestw RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+12:57:36 case bestw fixed:200: 8 cores, 128 B
+12:57:51   c8 f128  33.00 Mpps ladder   -> PASS      off 32.98 tx 32.99 refused 0.000% rxloss 0.000% cpu avg 95.5 max 99.9
+12:58:07   c8 f128  35.00 Mpps ladder   -> FAIL RX   off 34.99 tx 34.46 refused 0.000% rxloss 1.489% cpu avg 98.6 max 100.0
+12:58:23   c8 f128  34.00 Mpps bisect   -> PASS      off 33.98 tx 33.98 refused 0.000% rxloss 0.000% cpu avg 97.5 max 99.9
+12:58:39   c8 f128  34.50 Mpps bisect   -> FAIL RX   off 34.49 tx 34.45 refused 0.000% rxloss 0.092% cpu avg 98.6 max 100.0
+12:58:55   c8 f128  34.00 Mpps confirm  -> PASS      off 33.98 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 97.6 max 100.0
+12:59:11   c8 f128  34.00 Mpps confirm  -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 97.6 max 99.9
+12:59:13 case done: bestw fixed:200 8 cores 128 B: max 34.0 Mpps (34.26 Gbps), cpu avg 97.59 max 99.95; next 34.5 fails RX (6 runs)
+12:59:13 sweep done
+== done 12:59:13

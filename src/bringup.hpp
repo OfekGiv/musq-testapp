@@ -5,8 +5,11 @@
 /* DOCA DPDK-bridge probe of the real PF (after rte_eal_init, before any
  * ethdev call). Creates ethdev port 0. */
 int doca_probe(const AppConfig &cfg);
-/* Install the DOCA Flow steering pipeline (after rte_eth_dev_start). */
-int doca_init(const AppConfig &cfg, unsigned nb_workers);
+/* Install the DOCA Flow steering pipeline (after rte_eth_dev_start): groups
+ * steering groups of lanes RX queues each (group g = queues g*lanes..); the
+ * NIC hashes a flow to a group and round-robins inside it. Then logs the
+ * --hash-probe flows' groups. */
+int doca_init(const AppConfig &cfg, unsigned groups, unsigned lanes);
 void doca_cleanup();
 
 /* Fill AppState::workers from the EAL worker lcores (queue id == worker index). */

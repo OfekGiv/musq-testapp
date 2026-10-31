@@ -1,0 +1,55 @@
+== saturation 20:27:58
+20:27:59 matrix start: modes split,dist cores 4,8 works fixed:0,fixed:50,fixed:100,fixed:200,fixed:400,fixed:800,exp:100,exp:200 frame 128 offer 80.0 Mpps, out /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/sat
+20:28:12   split c4 fixed:0    f128: offered 79.96 fwd 33.57 Mpps loss 58.0 % refused 0.000 % | master 99 % 71 cyc, tx master 84 % 60 cyc, lanes busy 32-33 % cyc 45-46, rx spread 50.0 %
+20:28:29   dist  c4 fixed:0    f128: offered 79.98 fwd 34.66 Mpps loss 56.7 % refused 0.000 % | master 100 % 69 cyc, lanes busy 17-18 % cyc 35-38, rx spread 66.7 %
+20:28:45   split c8 fixed:0    f128: offered 79.97 fwd 34.04 Mpps loss 57.4 % refused 0.000 % | master 99 % 70 cyc, tx master 85 % 60 cyc, lanes busy 11-12 % cyc 47-52, rx spread 83.3 %
+20:29:01   dist  c8 fixed:0    f128: offered 79.96 fwd 34.54 Mpps loss 56.8 % refused 0.000 % | master 100 % 69 cyc, lanes busy 7-8 % cyc 36-38, rx spread 85.7 %
+20:29:17   split c4 fixed:50   f128: offered 80.02 fwd 23.55 Mpps loss 70.6 % refused 0.000 % | master 59 % 60 cyc, tx master 41 % 41 cyc, lanes busy 100-100 % cyc 203-203, rx spread 50.0 %
+20:29:34   dist  c4 fixed:50   f128: offered 79.98 fwd 34.61 Mpps loss 56.7 % refused 0.000 % | master 100 % 69 cyc, lanes busy 100-100 % cyc 207-207, rx spread 66.7 %
+20:29:50   split c8 fixed:50   f128: offered 79.97 fwd 34.16 Mpps loss 57.3 % refused 0.000 % | master 99 % 69 cyc, tx master 80 % 56 cyc, lanes busy 54-55 % cyc 226-229, rx spread 83.3 %
+20:30:06   dist  c8 fixed:50   f128: offered 79.96 fwd 33.77 Mpps loss 57.8 % refused 0.000 % | master 100 % 71 cyc, lanes busy 45-46 % cyc 223-229, rx spread 85.7 %
+20:30:22   split c4 fixed:100  f128: offered 80.03 fwd 14.08 Mpps loss 82.4 % refused 0.000 % | master 35 % 60 cyc, tx master 24 % 41 cyc, lanes busy 100-100 % cyc 340-340, rx spread 50.0 %
+20:30:38   dist  c4 fixed:100  f128: offered 80.00 fwd 21.10 Mpps loss 73.6 % refused 0.000 % | master 54 % 62 cyc, lanes busy 100-100 % cyc 340-340, rx spread 66.7 %
+20:30:55   split c8 fixed:100  f128: offered 79.96 fwd 34.23 Mpps loss 57.2 % refused 0.000 % | master 98 % 69 cyc, tx master 78 % 55 cyc, lanes busy 86-87 % cyc 360-364, rx spread 83.3 %
+20:31:11   dist  c8 fixed:100  f128: offered 79.96 fwd 33.73 Mpps loss 57.8 % refused 0.000 % | master 100 % 71 cyc, lanes busy 72-73 % cyc 359-364, rx spread 85.7 %
+20:31:27   split c4 fixed:200  f128: offered 80.03 fwd 8.74 Mpps loss 89.1 % refused 0.000 % | master 20 % 54 cyc, tx master 15 % 41 cyc, lanes busy 100-100 % cyc 548-548, rx spread 50.0 %
+20:31:43   dist  c4 fixed:200  f128: offered 80.01 fwd 13.09 Mpps loss 83.6 % refused 0.000 % | master 33 % 61 cyc, lanes busy 100-100 % cyc 549-549, rx spread 66.7 %
+20:31:59   split c8 fixed:200  f128: offered 79.96 fwd 26.19 Mpps loss 67.2 % refused 0.000 % | master 58 % 53 cyc, tx master 40 % 36 cyc, lanes busy 100-100 % cyc 548-548, rx spread 83.3 %
+20:32:15   dist  c8 fixed:200  f128: offered 79.97 fwd 30.59 Mpps loss 61.7 % refused 0.000 % | master 79 % 62 cyc, lanes busy 100-100 % cyc 548-548, rx spread 85.7 %
+20:32:31   split c4 fixed:400  f128: offered 80.03 fwd 4.65 Mpps loss 94.2 % refused 0.000 % | master 11 % 56 cyc, tx master 8 % 43 cyc, lanes busy 100-100 % cyc 1031-1031, rx spread 50.0 %
+20:32:48   dist  c4 fixed:400  f128: offered 80.03 fwd 6.97 Mpps loss 91.3 % refused 0.000 % | master 18 % 61 cyc, lanes busy 100-100 % cyc 1031-1032, rx spread 66.7 %
+20:33:04   split c8 fixed:400  f128: offered 79.98 fwd 13.94 Mpps loss 82.6 % refused 0.000 % | master 30 % 51 cyc, tx master 21 % 36 cyc, lanes busy 100-100 % cyc 1030-1030, rx spread 83.3 %
+20:33:20   dist  c8 fixed:400  f128: offered 79.98 fwd 16.25 Mpps loss 79.7 % refused 0.000 % | master 43 % 63 cyc, lanes busy 100-100 % cyc 1031-1031, rx spread 85.7 %
+20:33:36   split c4 fixed:800  f128: offered 80.03 fwd 2.40 Mpps loss 97.0 % refused 0.000 % | master 6 % 59 cyc, tx master 4 % 41 cyc, lanes busy 100-100 % cyc 1997-1998, rx spread 50.0 %
+20:33:52   dist  c4 fixed:800  f128: offered 80.03 fwd 3.60 Mpps loss 95.5 % refused 0.000 % | master 9 % 59 cyc, lanes busy 100-100 % cyc 1997-1998, rx spread 66.7 %
+20:34:08   split c8 fixed:800  f128: offered 79.98 fwd 7.19 Mpps loss 91.0 % refused 0.000 % | master 15 % 51 cyc, tx master 11 % 37 cyc, lanes busy 100-100 % cyc 1997-1997, rx spread 83.3 %
+20:34:24   dist  c8 fixed:800  f128: offered 80.00 fwd 8.39 Mpps loss 89.5 % refused 0.000 % | master 22 % 62 cyc, lanes busy 100-100 % cyc 1997-1997, rx spread 85.7 %
+20:34:40   split c4 exp:100    f128: offered 80.03 fwd 13.90 Mpps loss 82.6 % refused 0.000 % | master 34 % 59 cyc, tx master 23 % 40 cyc, lanes busy 100-100 % cyc 344-345, rx spread 50.0 %
+20:34:57   dist  c4 exp:100    f128: offered 80.04 fwd 20.89 Mpps loss 73.9 % refused 0.000 % | master 53 % 60 cyc, lanes busy 100-100 % cyc 344-344, rx spread 66.7 %
+20:35:13   split c8 exp:100    f128: offered 79.96 fwd 34.47 Mpps loss 56.9 % refused 0.000 % | master 98 % 68 cyc, tx master 73 % 51 cyc, lanes busy 88-90 % cyc 368-373, rx spread 83.3 %
+20:35:29   dist  c8 exp:100    f128: offered 79.96 fwd 34.20 Mpps loss 57.2 % refused 0.000 % | master 100 % 70 cyc, lanes busy 74-74 % cyc 362-365, rx spread 85.7 %
+20:35:45   split c4 exp:200    f128: offered 80.01 fwd 8.19 Mpps loss 89.8 % refused 0.000 % | master 20 % 60 cyc, tx master 14 % 41 cyc, lanes busy 100-100 % cyc 584-585, rx spread 50.0 %
+20:36:01   dist  c4 exp:200    f128: offered 80.01 fwd 12.29 Mpps loss 84.6 % refused 0.000 % | master 31 % 61 cyc, lanes busy 100-100 % cyc 583-585, rx spread 66.7 %
+20:36:17   split c8 exp:200    f128: offered 79.96 fwd 24.56 Mpps loss 69.3 % refused 0.000 % | master 53 % 51 cyc, tx master 37 % 37 cyc, lanes busy 100-100 % cyc 584-585, rx spread 83.3 %
+20:36:33   dist  c8 exp:200    f128: offered 79.96 fwd 28.69 Mpps loss 64.1 % refused 0.000 % | master 74 % 62 cyc, lanes busy 100-100 % cyc 583-584, rx spread 85.7 %
+20:36:35 matrix done
+== rtt 20:36:35
+20:36:35 rtt runs: modes split,dist cores 4,8 rate 16.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/rtt
+20:36:48   split c4: offered 15.99 fwd 15.99 Mpps loss 0.00 % matched 100.0 % | RTT us p50 8.0 p90 9.0 p99 11.0 p99.9 12.0 max 457.0 | cpu avg 45 max 67 %
+20:37:04   dist  c4: offered 16.00 fwd 16.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 9.0 p99 11.0 p99.9 12.0 max 130.0 | cpu avg 34 max 95 %
+20:37:19   split c8: offered 15.99 fwd 15.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 9.0 p99 11.0 p99.9 12.0 max 134.0 | cpu avg 23 max 68 %
+20:37:34   dist  c8: offered 15.99 fwd 15.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 10.0 p99 11.0 p99.9 12.0 max 33.0 | cpu avg 17 max 95 %
+20:37:36 rtt runs done
+20:37:36 rtt runs: modes split,dist cores 4,8 rate 30.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/rtt
+20:37:49   split c4: offered 29.99 fwd 29.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 10.0 p90 11.0 p99 12.0 p99.9 13.0 max 684.0 | cpu avg 62 max 90 %
+20:38:04   dist  c4: offered 29.99 fwd 29.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 11.0 p90 12.0 p99 13.0 p99.9 14.0 max 48.0 | cpu avg 39 max 100 %
+20:38:19   split c8: offered 29.99 fwd 29.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 10.0 p90 11.0 p99 12.0 p99.9 13.0 max 158.0 | cpu avg 31 max 89 %
+20:38:34   dist  c8: offered 29.99 fwd 29.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 11.0 p90 12.0 p99 13.0 p99.9 14.0 max 151.0 | cpu avg 20 max 100 %
+20:38:36 rtt runs done
+20:38:37 rtt runs: modes split cores 4 rate 1.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/rtt
+20:38:50   split c4: offered 1.50 fwd 1.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 17.0 p90 22.0 p99 23.0 p99.9 26.0 max 38.0 | cpu avg 49 max 79 %
+20:38:52 rtt runs done
+20:38:52 rtt runs: modes split cores 8 rate 4.0 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/rtt
+20:39:05   split c8: offered 4.00 fwd 4.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 31.0 p90 35.0 p99 36.0 p99.9 36.0 max 170.0 | cpu avg 61 max 70 %
+20:39:07 rtt runs done
+== done 20:39:07

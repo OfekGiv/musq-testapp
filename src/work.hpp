@@ -58,12 +58,13 @@ struct WorkSampler {
 };
 
 /* Locate the korba request header in an IPv4/UDP or IPv4/ESP (SPI+SN, then the
- * header) packet; nullptr otherwise. *udp_out is set when the packet is UDP so
- * the caller can zero the UDP checksum after modifying the payload. */
-static inline request_header *find_request_header(struct rte_mbuf *m, struct rte_udp_hdr **udp_out)
+ * header) frame of len bytes at data; nullptr otherwise. *udp_out is set when
+ * the packet is UDP so the caller can zero the UDP checksum after modifying the
+ * payload. */
+static inline request_header *find_request_header_data(uint8_t *data, uint16_t len, struct rte_udp_hdr **udp_out)
 {
     *udp_out = nullptr;
-    auto *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+    auto *eth = reinterpret_cast<struct rte_ether_hdr *>(data);
     if (eth->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
         return nullptr;
     auto *ip = reinterpret_cast<struct rte_ipv4_hdr *>(eth + 1);
@@ -78,13 +79,20 @@ static inline request_header *find_request_header(struct rte_mbuf *m, struct rte
     } else {
         return nullptr;
     }
-    if (m->data_len < off + sizeof(request_header))
+    if (len < off + sizeof(request_header))
         return nullptr;
-    auto *hdr = rte_pktmbuf_mtod_offset(m, request_header *, off);
+    auto *hdr = reinterpret_cast<request_header *>(data + off);
     return hdr->magic_number == REQUEST_MAGIC ? hdr : nullptr;
 }
 
-static inline uint64_t sample_cycles(const WorkSampler &ws, uint64_t &prng, struct rte_mbuf *m)
+static inline request_header *find_request_header(struct rte_mbuf *m, struct rte_udp_hdr **udp_out)
+{
+    return find_request_header_data(rte_pktmbuf_mtod(m, uint8_t *), m->data_len, udp_out);
+}
+
+/* Cycles of mock work for a packet (its data and length are only read in
+ * header mode). */
+static inline uint64_t sample_cycles_data(const WorkSampler &ws, uint64_t &prng, uint8_t *data, uint16_t len)
 {
     switch (ws.kind) {
     case WorkKind::Fixed:
@@ -95,11 +103,18 @@ static inline uint64_t sample_cycles(const WorkSampler &ws, uint64_t &prng, stru
         return ws.exp_table[xorshift64s(prng) >> (64 - WorkSampler::EXP_TABLE_BITS)];
     case WorkKind::Header: {
         struct rte_udp_hdr *udp;
-        const request_header *h = find_request_header(m, &udp);
+        const request_header *h = find_request_header_data(data, len, &udp);
         return h ? static_cast<uint64_t>(h->processing_time_us) * ws.cycles_per_us : 0;
     }
     }
     return 0;
+}
+
+static inline uint64_t sample_cycles(const WorkSampler &ws, uint64_t &prng, struct rte_mbuf *m)
+{
+    if (ws.kind != WorkKind::Header)
+        return sample_cycles_data(ws, prng, nullptr, 0);
+    return sample_cycles_data(ws, prng, rte_pktmbuf_mtod(m, uint8_t *), m->data_len);
 }
 
 /* CPU-bound spin (l3fwd l3fwd_busy_wait_ns), in TSC cycles. */

@@ -1,0 +1,19 @@
+/dev/shm/musq-file/run_nomu2.w0: flow 1.1.1.1 (lcore 2), file 2944000000 B = 16000000 chunks of 184 B
+  sent 16000000 chunks (0 refused by the requester's TX and re-sent), recorded 16000000 arrivals (0 frames without a chunk, 0 beyond the buffer)
+  in order 291120, reordered 7854440, gaps 7854440 (7854440 chunks skipped), duplicates 0, bad index 0, corrupted 0, missing 0
+  reorder extent (chunks): max 391, mean 28.26; 1-1: 314001, 2-3: 314333, 4-7: 623420, 8-15: 1224229, 16-31: 2261689, 32-63: 2959174, 64-127: 156444, 128-255: 1031, 256-1023: 119
+  first reordered arrival #30, last #15999999 of 16000000 (reordered arrivals span 100.0% of the stream)
+  cmp: file and recorded data differ first at byte 0 (chunk 0)
+  first anomalies (arrival #, kind, chunk index, highest index before it):
+    #0          gap        chunk 1            highest before -1
+    #1          gap        chunk 3            highest before 1
+    #2          gap        chunk 5            highest before 3
+    #3          gap        chunk 7            highest before 5
+    #4          gap        chunk 9            highest before 7
+    #5          gap        chunk 11           highest before 9
+    #6          gap        chunk 13           highest before 11
+    #7          gap        chunk 15           highest before 13
+    #8          gap        chunk 17           highest before 15
+    #9          gap        chunk 19           highest before 17
+  VERDICT: DIFFERENT
+cmp: /dev/shm/musq-file/in.bin /dev/shm/musq-file/run_nomu2.w0.data differ: byte 1, line 1

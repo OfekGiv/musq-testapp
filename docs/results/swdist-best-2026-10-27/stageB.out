@@ -1,0 +1,48 @@
+== BEST_OPTS=--rx-burst 64 --tx-burst 64 --dist-chunk 32 --dist-self 32
+== saturation 22:06:09
+22:06:09 matrix start: modes best cores 2,4,8 works fixed:0,fixed:50,fixed:100,fixed:200,fixed:400,fixed:800,exp:100,exp:200 frame 128 offer 80.0 Mpps, out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/sat
+22:06:23   best  c2 fixed:0    f128: offered 79.97 fwd 32.79 Mpps loss 59.0 % refused 0.000 % | master 100 % 73 cyc, self 0.40 Mpps, lanes busy 32-32 % cyc 24-24, rx spread 1.2 %
+22:06:39   best  c4 fixed:0    f128: offered 79.96 fwd 34.70 Mpps loss 56.6 % refused 0.000 % | master 100 % 69 cyc, self 0.00 Mpps, lanes busy 17-19 % cyc 36-40, rx spread 66.7 %
+22:06:56   best  c8 fixed:0    f128: offered 79.97 fwd 34.54 Mpps loss 56.8 % refused 0.000 % | master 100 % 69 cyc, self 0.00 Mpps, lanes busy 7-8 % cyc 35-38, rx spread 85.7 %
+22:07:12   best  c2 fixed:50   f128: offered 80.02 fwd 18.42 Mpps loss 77.0 % refused 0.000 % | master 100 % 130 cyc, self 6.83 Mpps, lanes busy 100-100 % cyc 206-206, rx spread 37.1 %
+22:07:28   best  c4 fixed:50   f128: offered 79.96 fwd 32.97 Mpps loss 58.8 % refused 0.000 % | master 100 % 73 cyc, self 0.78 Mpps, lanes busy 94-94 % cyc 209-211, rx spread 67.5 %
+22:07:44   best  c8 fixed:50   f128: offered 79.97 fwd 33.80 Mpps loss 57.7 % refused 0.000 % | master 100 % 71 cyc, self 0.00 Mpps, lanes busy 46-46 % cyc 227-229, rx spread 85.7 %
+22:08:00   best  c2 fixed:100  f128: offered 80.00 fwd 12.18 Mpps loss 84.8 % refused 0.000 % | master 100 % 197 cyc, self 5.15 Mpps, lanes busy 100-100 % cyc 341-341, rx spread 42.3 %
+22:08:16   best  c4 fixed:100  f128: offered 79.98 fwd 22.69 Mpps loss 71.6 % refused 0.000 % | master 100 % 105 cyc, self 2.74 Mpps, lanes busy 96-96 % cyc 345-347, rx spread 70.7 %
+22:08:33   best  c8 fixed:100  f128: offered 79.97 fwd 32.73 Mpps loss 59.1 % refused 0.000 % | master 100 % 73 cyc, self 0.00 Mpps, lanes busy 70-70 % cyc 356-358, rx spread 85.7 %
+22:08:49   best  c2 fixed:200  f128: offered 80.01 fwd 7.94 Mpps loss 90.1 % refused 0.000 % | master 100 % 302 cyc, self 3.57 Mpps, lanes busy 100-100 % cyc 548-548, rx spread 44.9 %
+22:09:05   best  c4 fixed:200  f128: offered 79.98 fwd 15.69 Mpps loss 80.4 % refused 0.000 % | master 100 % 153 cyc, self 2.63 Mpps, lanes busy 100-100 % cyc 549-550, rx spread 72.3 %
+22:09:21   best  c8 fixed:200  f128: offered 79.97 fwd 29.20 Mpps loss 63.5 % refused 0.000 % | master 100 % 82 cyc, self 0.81 Mpps, lanes busy 94-94 % cyc 552-554, rx spread 86.1 %
+22:09:38   best  c2 fixed:400  f128: offered 80.01 fwd 4.42 Mpps loss 94.5 % refused 0.000 % | master 100 % 542 cyc, self 2.10 Mpps, lanes busy 100-100 % cyc 1031-1031, rx spread 47.5 %
+22:09:54   best  c4 fixed:400  f128: offered 80.00 fwd 8.77 Mpps loss 89.0 % refused 0.000 % | master 100 % 273 cyc, self 1.81 Mpps, lanes busy 100-100 % cyc 1032-1032, rx spread 73.6 %
+22:10:10   best  c8 fixed:400  f128: offered 79.97 fwd 17.51 Mpps loss 78.1 % refused 0.000 % | master 100 % 137 cyc, self 1.29 Mpps, lanes busy 100-100 % cyc 1032-1033, rx spread 86.8 %
+22:10:26   best  c2 fixed:800  f128: offered 80.02 fwd 2.33 Mpps loss 97.1 % refused 0.000 % | master 100 % 1026 cyc, self 1.13 Mpps, lanes busy 100-100 % cyc 1998-1998, rx spread 48.6 %
+22:10:43   best  c4 fixed:800  f128: offered 79.97 fwd 4.66 Mpps loss 94.2 % refused 0.000 % | master 100 % 514 cyc, self 1.06 Mpps, lanes busy 100-100 % cyc 1998-1999, rx spread 74.3 %
+22:10:59   best  c8 fixed:800  f128: offered 79.96 fwd 9.29 Mpps loss 88.4 % refused 0.000 % | master 100 % 258 cyc, self 0.91 Mpps, lanes busy 100-100 % cyc 1998-1999, rx spread 87.1 %
+22:11:15   best  c2 exp:100    f128: offered 80.00 fwd 11.82 Mpps loss 85.2 % refused 0.000 % | master 100 % 203 cyc, self 4.95 Mpps, lanes busy 100-100 % cyc 349-349, rx spread 41.9 %
+22:11:31   best  c4 exp:100    f128: offered 79.98 fwd 22.65 Mpps loss 71.7 % refused 0.000 % | master 100 % 106 cyc, self 2.85 Mpps, lanes busy 97-97 % cyc 350-351, rx spread 70.9 %
+22:11:47   best  c8 exp:100    f128: offered 79.97 fwd 34.55 Mpps loss 56.8 % refused 0.000 % | master 100 % 69 cyc, self 0.00 Mpps, lanes busy 75-76 % cyc 366-367, rx spread 85.7 %
+22:12:03   best  c2 exp:200    f128: offered 80.02 fwd 7.48 Mpps loss 90.7 % refused 0.000 % | master 100 % 320 cyc, self 3.41 Mpps, lanes busy 100-100 % cyc 588-588, rx spread 45.5 %
+22:12:19   best  c4 exp:200    f128: offered 79.96 fwd 14.58 Mpps loss 81.8 % refused 0.000 % | master 100 % 164 cyc, self 2.54 Mpps, lanes busy 99-99 % cyc 590-591, rx spread 72.5 %
+22:12:36   best  c8 exp:200    f128: offered 79.97 fwd 27.00 Mpps loss 66.2 % refused 0.000 % | master 100 % 89 cyc, self 1.03 Mpps, lanes busy 92-92 % cyc 593-595, rx spread 86.3 %
+22:12:38 matrix done
+== rtt 22:12:38
+22:12:38 rtt runs: modes best cores 2,4,8 rate 16.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt
+22:12:51   best  c2: offered 16.00 fwd 16.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 9.0 p99 11.0 p99.9 12.0 max 126.0 | cpu avg 65 max 94 %
+22:13:06   best  c4: offered 16.00 fwd 16.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 10.0 p99 11.0 p99.9 12.0 max 124.0 | cpu avg 35 max 95 %
+22:13:21   best  c8: offered 15.99 fwd 15.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 10.0 p99 11.0 p99.9 12.0 max 156.0 | cpu avg 18 max 96 %
+22:13:23 rtt runs done
+22:13:23 rtt runs: modes best cores 4,8 rate 30.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt
+22:13:36   best  c4: offered 29.99 fwd 29.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 11.0 p90 12.0 p99 13.0 p99.9 14.0 max 135.0 | cpu avg 40 max 100 %
+22:13:52   best  c8: offered 29.99 fwd 29.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 11.0 p90 12.0 p99 13.0 p99.9 14.0 max 147.0 | cpu avg 20 max 100 %
+22:13:54 rtt runs done
+22:13:54 rtt runs: modes best cores 2 rate 0.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt
+22:14:07   best  c2: offered 0.50 fwd 0.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 5.0 p90 6.0 p99 6.0 p99.9 6.0 max 102.0 | cpu avg 44 max 59 %
+22:14:09 rtt runs done
+22:14:09 rtt runs: modes best cores 4 rate 1.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt
+22:14:22   best  c4: offered 1.50 fwd 1.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 16.0 p90 21.0 p99 24.0 p99.9 25.0 max 47.0 | cpu avg 49 max 53 %
+22:14:24 rtt runs done
+22:14:24 rtt runs: modes best cores 8 rate 4.0 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/rtt
+22:14:37   best  c8: offered 4.00 fwd 4.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 31.0 p90 35.0 p99 36.0 p99.9 37.0 max 147.0 | cpu avg 61 max 71 %
+22:14:39 rtt runs done
+== done 22:14:39

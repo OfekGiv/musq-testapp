@@ -1,0 +1,78 @@
+== split 8 cores fixed:0: saturation 34.04 Mpps, search from 33
+20:41:40 output /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/strict, TRAFFIC=esp
+20:41:40 sweep start, RESP_MODE=split RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+20:41:40 case split fixed:0: 8 cores, 128 B
+20:41:54   c8 f128  33.00 Mpps ladder   -> PASS      off 32.99 tx 32.99 refused 0.000% rxloss 0.000% cpu avg 31.0 max 96.5
+20:42:10   c8 f128  35.00 Mpps ladder   -> FAIL RX   off 34.99 tx 34.05 refused 0.000% rxloss 2.680% cpu avg 31.7 max 99.2
+20:42:27   c8 f128  34.00 Mpps bisect   -> FAIL RX   off 33.99 tx 33.77 refused 0.000% rxloss 0.632% cpu avg 31.7 max 99.1
+20:42:43   c8 f128  33.50 Mpps bisect   -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 31.3 max 98.3
+20:42:59   c8 f128  33.50 Mpps confirm  -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 31.5 max 98.4
+20:43:15   c8 f128  33.50 Mpps confirm  -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 31.4 max 98.0
+20:43:17 case done: split fixed:0 8 cores 128 B: max 33.5 Mpps (33.76 Gbps), cpu avg 31.38 max 98.23; next 34.0 fails RX (6 runs)
+20:43:17 sweep done
+== dist 8 cores fixed:0: saturation 34.54 Mpps, search from 33
+20:43:17 output /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/strict, TRAFFIC=esp
+20:43:17 sweep start, RESP_MODE=dist RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+20:43:17 case dist fixed:0: 8 cores, 128 B
+20:43:32   c8 f128  33.00 Mpps ladder   -> PASS      off 32.99 tx 32.99 refused 0.000% rxloss 0.000% cpu avg 18.8 max 100.0
+20:43:48   c8 f128  35.00 Mpps ladder   -> FAIL RX   off 34.99 tx 34.61 refused 0.000% rxloss 1.074% cpu avg 19.1 max 100.0
+20:44:04   c8 f128  34.00 Mpps bisect   -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 19.0 max 100.0
+20:44:20   c8 f128  34.50 Mpps bisect   -> PASS      off 34.49 tx 34.49 refused 0.000% rxloss 0.000% cpu avg 19.1 max 100.0
+20:44:37   c8 f128  34.50 Mpps confirm  -> PASS      off 34.49 tx 34.49 refused 0.000% rxloss 0.000% cpu avg 19.1 max 100.0
+20:44:53   c8 f128  34.50 Mpps confirm  -> FAIL RX   off 34.49 tx 34.17 refused 0.000% rxloss 0.934% cpu avg 19.0 max 100.0
+20:45:09   c8 f128  34.00 Mpps confirm  -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 19.0 max 100.0
+20:45:25   c8 f128  34.00 Mpps confirm  -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 19.0 max 100.0
+20:45:27 case done: dist fixed:0 8 cores 128 B: max 34.0 Mpps (34.26 Gbps), cpu avg 18.99 max 100.0; next 34.5 fails RX (8 runs)
+20:45:27 sweep done
+== split 8 cores fixed:100: saturation 34.23 Mpps, search from 33
+20:45:27 output /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/strict, TRAFFIC=esp
+20:45:27 sweep start, RESP_MODE=split RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+20:45:27 case split fixed:100: 8 cores, 128 B
+20:45:41   c8 f128  33.00 Mpps ladder   -> PASS      off 32.99 tx 32.99 refused 0.000% rxloss 0.000% cpu avg 84.0 max 95.3
+20:45:58   c8 f128  35.00 Mpps ladder   -> FAIL RX   off 34.99 tx 34.23 refused 0.000% rxloss 2.170% cpu avg 86.6 max 98.4
+20:46:14   c8 f128  34.00 Mpps bisect   -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.003% cpu avg 86.3 max 98.0
+20:46:30   c8 f128  34.50 Mpps bisect   -> FAIL RX   off 34.49 tx 34.05 refused 0.000% rxloss 1.283% cpu avg 86.4 max 98.2
+20:46:46   c8 f128  34.00 Mpps confirm  -> FAIL RX   off 33.99 tx 33.94 refused 0.000% rxloss 0.150% cpu avg 86.0 max 98.1
+20:47:02   c8 f128  33.50 Mpps confirm  -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 84.9 max 95.8
+20:47:18   c8 f128  33.50 Mpps confirm  -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 85.0 max 96.1
+20:47:35   c8 f128  33.50 Mpps confirm  -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 84.8 max 95.9
+20:47:37 case done: split fixed:100 8 cores 128 B: max 33.5 Mpps (33.76 Gbps), cpu avg 84.94 max 95.94; next 34.0 fails RX (8 runs)
+20:47:37 sweep done
+== dist 8 cores fixed:100: saturation 33.73 Mpps, search from 32
+20:47:37 output /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/strict, TRAFFIC=esp
+20:47:37 sweep start, RESP_MODE=dist RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+20:47:37 case dist fixed:100: 8 cores, 128 B
+20:47:51   c8 f128  32.00 Mpps ladder   -> PASS      off 31.99 tx 31.99 refused 0.000% rxloss 0.000% cpu avg 72.1 max 100.0
+20:48:07   c8 f128  34.00 Mpps ladder   -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 75.7 max 100.0
+20:48:23   c8 f128  36.00 Mpps ladder   -> FAIL RX   off 35.99 tx 34.24 refused 0.000% rxloss 4.843% cpu avg 76.1 max 100.0
+20:48:39   c8 f128  35.00 Mpps bisect   -> FAIL RX   off 34.99 tx 34.25 refused 0.000% rxloss 2.108% cpu avg 76.4 max 100.0
+20:48:56   c8 f128  34.50 Mpps bisect   -> FAIL RX   off 34.49 tx 33.65 refused 0.000% rxloss 2.418% cpu avg 76.0 max 100.0
+20:49:12   c8 f128  34.00 Mpps confirm  -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 75.7 max 100.0
+20:49:28   c8 f128  34.00 Mpps confirm  -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 75.8 max 100.0
+20:49:30 case done: dist fixed:100 8 cores 128 B: max 34.0 Mpps (34.26 Gbps), cpu avg 75.77 max 100.0; next 34.5 fails RX (7 runs)
+20:49:30 sweep done
+== split 4 cores fixed:0: saturation 33.57 Mpps, search from 32
+20:49:30 output /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/strict, TRAFFIC=esp
+20:49:30 sweep start, RESP_MODE=split RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+20:49:30 case split fixed:0: 4 cores, 128 B
+20:49:44   c4 f128  32.00 Mpps ladder   -> PASS      off 31.99 tx 31.99 refused 0.000% rxloss 0.000% cpu avg 60.4 max 95.7
+20:50:00   c4 f128  34.00 Mpps ladder   -> FAIL RX   off 33.99 tx 33.58 refused 0.000% rxloss 1.196% cpu avg 61.7 max 99.0
+20:50:16   c4 f128  33.00 Mpps bisect   -> PASS      off 32.98 tx 32.98 refused 0.000% rxloss 0.000% cpu avg 61.7 max 97.5
+20:50:33   c4 f128  33.50 Mpps bisect   -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 61.7 max 98.7
+20:50:49   c4 f128  33.50 Mpps confirm  -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 61.5 max 98.5
+20:51:05   c4 f128  33.50 Mpps confirm  -> PASS      off 33.49 tx 33.49 refused 0.000% rxloss 0.000% cpu avg 62.1 max 98.4
+20:51:07 case done: split fixed:0 4 cores 128 B: max 33.5 Mpps (33.75 Gbps), cpu avg 61.76 max 98.51; next 34.0 fails RX (6 runs)
+20:51:07 sweep done
+== dist 4 cores fixed:0: saturation 34.66 Mpps, search from 33
+20:51:07 output /homes/ofekdg/musq-testapp/docs/results/swdist-split-2026-10-27/strict, TRAFFIC=esp
+20:51:07 sweep start, RESP_MODE=dist RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+20:51:07 case dist fixed:0: 4 cores, 128 B
+20:51:21   c4 f128  33.00 Mpps ladder   -> PASS      off 32.99 tx 32.99 refused 0.000% rxloss 0.000% cpu avg 37.4 max 100.0
+20:51:38   c4 f128  35.00 Mpps ladder   -> FAIL RX   off 34.99 tx 34.43 refused 0.000% rxloss 1.584% cpu avg 37.9 max 100.0
+20:51:54   c4 f128  34.00 Mpps bisect   -> PASS      off 33.99 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 38.0 max 100.0
+20:52:10   c4 f128  34.50 Mpps bisect   -> PASS      off 34.49 tx 34.49 refused 0.000% rxloss 0.000% cpu avg 37.9 max 100.0
+20:52:26   c4 f128  34.50 Mpps confirm  -> FAIL RX   off 34.49 tx 34.30 refused 0.000% rxloss 0.524% cpu avg 38.0 max 100.0
+20:52:42   c4 f128  34.00 Mpps confirm  -> PASS      off 33.98 tx 33.99 refused 0.000% rxloss 0.000% cpu avg 37.9 max 100.0
+20:52:58   c4 f128  34.00 Mpps confirm  -> PASS      off 33.98 tx 33.98 refused 0.000% rxloss 0.000% cpu avg 37.7 max 100.0
+20:53:00 case done: dist fixed:0 4 cores 128 B: max 34.0 Mpps (34.26 Gbps), cpu avg 37.87 max 100.0; next 34.5 fails RX (7 runs)
+20:53:00 sweep done

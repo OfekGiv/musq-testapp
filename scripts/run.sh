@@ -40,6 +40,13 @@ if [[ "$ppw" == 1 ]]; then
   variant="$variant-ppw1"
   PROM_INSTALL_DIR="${PROM_INSTALL_DIR_PPW1:-/homes/ofekdg/prom-dpdk/install-o2-nometa-ppw1}"
 fi
+if [[ -n "${MUSQ_BUILD:-}" ]]; then
+  # MUSQ_BUILD=o3|o3nt: the release builds from scripts/build_prom_o3.sh,
+  # build[-nodoca][-ppw1]-<tag>, linked (RPATH) to $EVAL_DIR/prom-<tag>[-ppw1].
+  [[ "$ppw" == 1 ]] && sfx="-ppw1" || sfx=""
+  PROM_INSTALL_DIR="${EVAL_DIR:-/homes/ofekdg/dpdk-eval}/prom-$MUSQ_BUILD$sfx"
+  variant="$variant-$MUSQ_BUILD"
+fi
 if [[ -z "${MUSQ_BIN:-}" ]]; then
   MUSQ_BIN="$here/../$variant/musq-testapp"
 fi

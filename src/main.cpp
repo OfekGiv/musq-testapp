@@ -1,6 +1,7 @@
 #include "app.hpp"
 #include "bringup.hpp"
 #include "config.hpp"
+#include "dist.hpp"
 #include "esp_hw.hpp"
 #include "lane_epoch.hpp"
 #include "requester.hpp"
@@ -38,8 +39,15 @@ static int worker_entry(void *arg)
     const int widx = st->lcore_to_worker[rte_lcore_id()];
     if (widx < 0)
         return 0;
-    switch (st->workers[widx].role) {
+    const WorkerCtx &w = st->workers[widx];
+    switch (w.role) {
     case Role::Responder:
+        if (w.dist_role == DistRole::Master)
+            return dist_master_loop(arg);
+        if (w.dist_role == DistRole::TxMaster)
+            return dist_tx_master_loop(arg);
+        if (w.dist_role == DistRole::Worker)
+            return dist_worker_loop(arg);
         return responder_loop(arg);
     case Role::Requester:
         return requester_loop(arg);
@@ -154,7 +162,7 @@ int main(int argc, char **argv)
         goto out;
     port_up = true;
     if (cfg.doca_enabled()) {
-        if (doca_init(cfg, st.nb_workers) < 0)
+        if (doca_init(cfg, cfg.musq_groups, cfg.group_rx_queues()) < 0)
             goto out;
         doca_up = true;
     }
@@ -164,7 +172,7 @@ int main(int argc, char **argv)
     } else {
         responder_init(cfg, st.tsc_hz);
         lane_pmd_init();
-        if (lane_slot_check(st) < 0 || lane_epoch_init(st) < 0)
+        if (lane_slot_check(st) < 0 || lane_group_check(st) < 0 || lane_epoch_init(st) < 0 || dist_init(st) < 0)
             goto out;
     }
     if (reporter.init(st) < 0)
@@ -200,6 +208,7 @@ out:
         esp_hw_cleanup();
     requester_cleanup(st);
     lane_epoch_cleanup(st);
+    dist_cleanup(st); /* every lcore has stopped: frees what the rings still hold */
     free_pools(st);
     rte_eal_cleanup();
     /* eal_argv strings are intentionally not freed: rte_eal_init() takes

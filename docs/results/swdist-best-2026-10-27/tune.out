@@ -1,0 +1,16 @@
+22:01:53 tune: cores 8 frame 128 offer 80.0 work fixed:0 variants base,burst128,rx128tx64,chunk64,chunk16,chunk8,immediate,rxq2,rings2048,rxd4096,seqn,self32,stock,stock_rxq2
+22:02:07   base        : fwd 34.53 Mpps (offered 80.0) refused 0.000 % | master 100 % 69 cyc | workers busy max 8 % cyc max 40
+22:02:23   burst128    : fwd 34.36 Mpps (offered 80.0) refused 0.000 % | master 100 % 70 cyc | workers busy max 6 % cyc max 31
+22:02:40   rx128tx64   : fwd 34.39 Mpps (offered 80.0) refused 0.000 % | master 100 % 70 cyc | workers busy max 8 % cyc max 37
+22:02:56   chunk64     : fwd 33.96 Mpps (offered 80.0) refused 0.000 % | master 100 % 70 cyc | workers busy max 7 % cyc max 35
+22:03:12   chunk16     : fwd 32.00 Mpps (offered 80.0) refused 0.000 % | master 100 % 75 cyc | workers busy max 11 % cyc max 59
+22:03:28   chunk8      : fwd 29.52 Mpps (offered 80.0) refused 0.000 % | master 100 % 81 cyc | workers busy max 14 % cyc max 77
+22:03:44   immediate   : fwd 34.63 Mpps (offered 80.0) refused 0.000 % | master 100 % 69 cyc | workers busy max 8 % cyc max 38
+22:04:00   rxq2        : fwd 34.60 Mpps (offered 80.0) refused 0.000 % | master 100 % 69 cyc | workers busy max 8 % cyc max 39
+22:04:17   rings2048   : fwd 34.51 Mpps (offered 80.0) refused 0.000 % | master 100 % 69 cyc | workers busy max 8 % cyc max 39
+22:04:33   rxd4096     : fwd 34.08 Mpps (offered 80.0) refused 0.000 % | master 100 % 70 cyc | workers busy max 8 % cyc max 41
+22:04:49   seqn        : fwd 25.51 Mpps (offered 80.0) refused 0.000 % | master 100 % 94 cyc | workers busy max 6 % cyc max 42
+22:05:05   self32      : fwd 34.74 Mpps (offered 80.0) refused 0.000 % | master 100 % 69 cyc | workers busy max 8 % cyc max 39
+22:05:21   stock       : fwd 34.28 Mpps (offered 80.0) refused 0.000 % | master 100 % 70 cyc | workers busy max 8 % cyc max 39
+22:05:37   stock_rxq2  : fwd 35.96 Mpps (offered 80.0) refused 0.000 % | master 100 % 67 cyc | workers busy max 8 % cyc max 38
+22:05:39 tune done

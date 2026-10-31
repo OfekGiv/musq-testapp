@@ -1,0 +1,40 @@
+== musq default doorbell 14:19:14
+14:19:14 rtt runs: modes musq cores 2,4,8 rate 16.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt-musq-dbdefault
+14:19:29   musq  c2: offered 16.00 fwd 16.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 8.0 p90 9.0 p99 11.0 p99.9 12.0 max 33.0 | cpu avg 63 max 63 %
+14:19:45   musq  c4: offered 16.00 fwd 16.00 Mpps loss 0.00 % matched 100.0 % | RTT us p50 8.0 p90 9.0 p99 11.0 p99.9 12.0 max 145.0 | cpu avg 57 max 57 %
+14:20:01   musq  c8: offered 16.00 fwd 16.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 9.0 p90 11.0 p99 13.0 p99.9 14.0 max 232.0 | cpu avg 40 max 40 %
+14:20:03 rtt runs done
+14:20:03 rtt runs: modes musq cores 2,4,8 rate 30.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt-musq-dbdefault
+14:20:18   musq  c2: offered 30.01 fwd 30.01 Mpps loss -0.00 % matched 100.0 % | RTT us p50 12.0 p90 14.0 p99 15.0 p99.9 17.0 max 176.0 | cpu avg 71 max 71 %
+14:20:34   musq  c4: offered 29.99 fwd 29.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 11.0 p90 13.0 p99 14.0 p99.9 16.0 max 156.0 | cpu avg 52 max 53 %
+14:20:50   musq  c8: offered 29.99 fwd 29.99 Mpps loss 0.00 % matched 100.0 % | RTT us p50 13.0 p90 16.0 p99 18.0 p99.9 20.0 max 150.0 | cpu avg 46 max 46 %
+14:20:52 rtt runs done
+14:20:52 rtt runs: modes musq cores 2 rate 0.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt-musq-dbdefault
+14:21:06   musq  c2: offered 0.50 fwd 0.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 13.0 p90 20.0 p99 21.0 p99.9 21.0 max 31.0 | cpu avg 32 max 32 %
+14:21:08 rtt runs done
+14:21:09 rtt runs: modes musq cores 4 rate 1.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt-musq-dbdefault
+14:21:22   musq  c4: offered 1.50 fwd 1.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 12.0 p90 19.0 p99 23.0 p99.9 24.0 max 35.0 | cpu avg 47 max 47 %
+14:21:24 rtt runs done
+14:21:24 rtt runs: modes musq cores 8 rate 4.0 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt-musq-dbdefault
+14:21:38   musq  c8: offered 4.00 fwd 4.00 Mpps loss 0.00 % matched 100.0 % | RTT us p50 11.0 p90 17.0 p99 20.0 p99.9 21.0 max 38.0 | cpu avg 63 max 63 %
+14:21:40 rtt runs done
+== 1 us service below capacity 14:21:40
+14:21:40 rtt runs: modes musq,dist,plain cores 2 rate 0.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt
+14:21:54   musq  c2: offered 0.50 fwd 0.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 268.0 p90 471.0 p99 518.0 p99.9 528.0 max 531.0 | cpu avg 31 max 31 %
+14:22:10   dist  c2: offered 0.50 fwd 0.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 5.0 p90 6.0 p99 6.0 p99.9 6.0 max 26.0 | cpu avg 44 max 59 %
+14:22:25   plain c2: offered 0.50 fwd 0.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 5.0 p90 5.0 p99 5.0 p99.9 6.0 max 17.0 | cpu avg 32 max 32 %
+14:22:27 rtt runs done
+14:22:27 rtt runs: modes musq,dist,plain cores 4 rate 1.5 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt
+14:22:41   musq  c4: offered 1.50 fwd 1.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 188.0 p90 320.0 p99 348.0 p99.9 356.0 max 473.0 | cpu avg 47 max 47 %
+14:22:56   dist  c4: offered 1.50 fwd 1.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 16.0 p90 21.0 p99 25.0 p99.9 26.0 max 126.0 | cpu avg 48 max 53 %
+14:23:11   plain c4: offered 1.50 fwd 1.50 Mpps loss -0.00 % matched 100.0 % | RTT us p50 5.0 p90 5.0 p99 6.0 p99.9 7.0 max 20.0 | cpu avg 48 max 48 %
+14:23:13 rtt runs done
+== distributor chunk 1 14:23:13
+14:23:13 rtt runs: modes dist cores 8 rate 16.0 Mpps service 0 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt-dist-chunk1
+14:23:26   dist  c8: offered 15.99 fwd 15.99 Mpps loss -0.00 % matched 100.0 % | RTT us p50 11.0 p90 12.0 p99 13.0 p99.9 14.0 max 37.0 | cpu avg 21 max 99 %
+14:23:28 rtt runs done
+14:23:28 rtt runs: modes dist cores 8 rate 4.0 Mpps service 1000 ns frame 128 out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/rtt-dist-chunk1
+14:23:42   dist  c8: offered 4.00 fwd 4.00 Mpps loss -0.00 % matched 100.0 % | RTT us p50 6.0 p90 7.0 p99 8.0 p99.9 9.0 max 42.0 | cpu avg 70 max 98 %
+14:23:44 rtt runs done
+== done 14:23:44
+exit 0

@@ -149,6 +149,16 @@ CoreSnapshot StatsReporter::snapshot(const WorkerCtx &w) const
     s.resp_unmatched = LD(resp_unmatched);
     s.req_lost = LD(req_lost);
     s.tx_batch_capped = LD(tx_batch_capped);
+    s.sn_reorder = LD(sn_reorder);
+    s.sn_gap_pkts = LD(sn_gap_pkts);
+    s.sn_max_back = LD(sn_max_back);
+    s.spi_foreign = LD(spi_foreign);
+    s.dealt = LD(dealt);
+    s.collected = LD(collected);
+    s.rx_held = LD(rx_held);
+    s.stalls = LD(stalls);
+    s.self_pkts = LD(self_pkts);
+    s.ring_retries = LD(ring_retries);
 #undef LD
     for (unsigned l = 0; l < w.nb_tx_lanes; l++) {
         uint64_t db = 0;
@@ -181,7 +191,10 @@ int StatsReporter::init(AppState &st)
             }
             xs_base_.assign(n, 0);
             xs_prev_.assign(n, 0);
-            if (st.cfg.rx_queues > 1) {
+            /* Per-queue RX counts: how RSS splits over --rx-queues, or how the
+             * hash splits the flows over the mu_sq groups and the round
+             * robin inside each of them. */
+            if (st.cfg.rx_queues > 1 || st.cfg.musq_groups > 1) {
                 for (unsigned q = 0; q < st.cfg.nb_rx_queues(); q++) {
                     const std::string want = fmt::format("rx_q{}_packets", q);
                     for (int i = 0; i < n; i++)
@@ -508,7 +521,11 @@ void StatsReporter::report_cores(uint64_t window_tsc, double window_s, bool is_f
         DIFF(rx_pkts); DIFF(tx_pkts); DIFF(tx_drops); DIFF(rx_bursts); DIFF(rx_full_bursts);
         DIFF(non_ipv4); DIFF(work_cycles); DIFF(cycles_used); DIFF(cycles_wasted);
         DIFF(req_sent); DIFF(resp_matched); DIFF(resp_unmatched); DIFF(req_lost); DIFF(tx_batch_capped);
+        DIFF(sn_reorder); DIFF(sn_gap_pkts); DIFF(spi_foreign);
+        /* A maximum, not a counter: shown as is. */
+        tot[i].sn_max_back = cur[i].sn_max_back;
         DIFF(doorbells);
+        DIFF(dealt); DIFF(collected); DIFF(rx_held); DIFF(stalls); DIFF(ring_retries); DIFF(self_pkts);
 #undef DIFF
         core_prev_[i] = cur[i];
     }
@@ -525,6 +542,33 @@ void StatsReporter::report_cores(uint64_t window_tsc, double window_s, bool is_f
             cells.push_back(fn(i));
         t.add_row(label, cells);
     };
+    /* --masters: a master's RX/TX rows are the NIC's, a worker's are the
+     * packets it took from and handed back to its master. */
+    const bool dist = st_->cfg.dist(), split = st_->cfg.dist_split();
+    auto drole = [&](unsigned i) { return st_->workers[i].dist_role; };
+    auto is_master = [&](unsigned i) { return drole(i) == DistRole::Master || drole(i) == DistRole::TxMaster; };
+    /* --tx-masters: a master's collected count is its TX master's. */
+    auto pair_collected = [&](unsigned i) -> uint64_t {
+        if (!split)
+            return cur[i].collected;
+        for (unsigned j = 0; j < nw; j++)
+            if (drole(j) == DistRole::TxMaster && st_->workers[j].master_idx == st_->workers[i].master_idx)
+                return cur[j].collected;
+        return 0;
+    };
+    if (dist)
+        row("Role", [&](unsigned i) {
+            switch (drole(i)) {
+            case DistRole::Master: return std::string(split ? "rx master" : "master");
+            case DistRole::TxMaster: return std::string("tx master");
+            default: return std::string("worker");
+            }
+        });
+    /* --musq-groups: the shared ring (group) each core posts to and its lane. */
+    if (st_->cfg.musq_groups > 1)
+        row("Group", [&](unsigned i) {
+            return fmt::format("g{} lane{}", st_->workers[i].musq_group, st_->workers[i].lane_in_group);
+        });
     row("RX pps", [&](unsigned i) { return group_u64(rate(del[i].rx_pkts)); });
     row("TX pps", [&](unsigned i) { return group_u64(rate(del[i].tx_pkts)); });
     row("RX pkts", [&](unsigned i) { return group_u64(tot[i].rx_pkts); });
@@ -532,7 +576,27 @@ void StatsReporter::report_cores(uint64_t window_tsc, double window_s, bool is_f
     row("TX pkts", [&](unsigned i) { return group_u64(tot[i].tx_pkts); });
     row("  TX pkts (+win)", [&](unsigned i) { return group_u64(del[i].tx_pkts); });
     row("TX drops", [&](unsigned i) { return fmt_total_delta(tot[i].tx_drops, del[i].tx_drops); });
-    if (nw != 0 && cur[0].have_doorbells) {
+    if (dist) {
+        /* Masters only: the hand-offs and the two ways a master waits (README,
+         * "Software distributor"); workers show "-". */
+        auto mrow = [&](const char *label, std::function<std::string(unsigned)> fn) {
+            row(label, [&](unsigned i) { return is_master(i) ? fn(i) : std::string("-"); });
+        };
+        mrow("Dealt pps", [&](unsigned i) { return group_u64(rate(del[i].dealt)); });
+        mrow("Dealt", [&](unsigned i) { return fmt_total_delta(tot[i].dealt, del[i].dealt); });
+        mrow("Collected", [&](unsigned i) { return fmt_total_delta(tot[i].collected, del[i].collected); });
+        mrow("In flight now", [&](unsigned i) { /* dealt to the workers and kept for itself, not yet sent */
+            return drole(i) == DistRole::TxMaster ? std::string("-")
+                                                  : group_u64(cur[i].dealt + cur[i].self_pkts - pair_collected(i));
+        });
+        mrow("RX held passes", [&](unsigned i) { return fmt_total_delta(tot[i].rx_held, del[i].rx_held); });
+        mrow("Collect stalls", [&](unsigned i) { return fmt_total_delta(tot[i].stalls, del[i].stalls); });
+        if (st_->cfg.dist_self)
+            mrow("Self-processed", [&](unsigned i) { return fmt_total_delta(tot[i].self_pkts, del[i].self_pkts); });
+        row("Ring retries", [&](unsigned i) { return fmt_total_delta(tot[i].ring_retries, del[i].ring_retries); });
+    }
+    const bool any_doorbells = std::any_of(cur.begin(), cur.end(), [](const CoreSnapshot &c) { return c.have_doorbells; });
+    if (any_doorbells) {
         /* What the PMD wrote to the doorbell register for this core's TX
          * queues. At one packet per WQE, packets per doorbell is WQEs per
          * doorbell. */
@@ -550,6 +614,14 @@ void StatsReporter::report_cores(uint64_t window_tsc, double window_s, bool is_f
         row("Req lost", [&](unsigned i) { return fmt_total_delta(tot[i].req_lost, del[i].req_lost); });
         row("Batches capped", [&](unsigned i) { return fmt_total_delta(tot[i].tx_batch_capped, del[i].tx_batch_capped); });
         row("Non-response RX", [&](unsigned i) { return fmt_total_delta(tot[i].non_ipv4, del[i].non_ipv4); });
+        if (st_->cfg.traffic == TrafficKind::Esp && st_->cfg.esp_sn_check) {
+            /* The order proof: each lcore's ESP responses must come back with
+             * increasing sequence numbers (requester.cpp check_esp_sn). */
+            row("ESP SN reorders", [&](unsigned i) { return fmt_total_delta(tot[i].sn_reorder, del[i].sn_reorder); });
+            row("ESP SN max back", [&](unsigned i) { return group_u64(tot[i].sn_max_back); });
+            row("ESP SN gap pkts", [&](unsigned i) { return fmt_total_delta(tot[i].sn_gap_pkts, del[i].sn_gap_pkts); });
+            row("ESP foreign SPI", [&](unsigned i) { return fmt_total_delta(tot[i].spi_foreign, del[i].spi_foreign); });
+        }
     } else {
         row("Non-IPv4 pkts", [&](unsigned i) { return fmt_total_delta(tot[i].non_ipv4, del[i].non_ipv4); });
     }
@@ -593,12 +665,26 @@ void StatsReporter::report_cores(uint64_t window_tsc, double window_s, bool is_f
         csv_row("core", id, "cycles_wasted", tot[i].cycles_wasted, del[i].cycles_wasted, 0);
         csv_row("core", id, "work_cycles", tot[i].work_cycles, del[i].work_cycles, 0);
         csv_row("core", id, "cpu_busy_pct", 0, 0, all ? 100.0 * del[i].cycles_used / all : 0.0);
+        if (dist) {
+            csv_row("core", id, "dealt", tot[i].dealt, del[i].dealt, static_cast<double>(rate(del[i].dealt)));
+            csv_row("core", id, "collected", tot[i].collected, del[i].collected, static_cast<double>(rate(del[i].collected)));
+            csv_row("core", id, "rx_held", tot[i].rx_held, del[i].rx_held, 0);
+            csv_row("core", id, "stalls", tot[i].stalls, del[i].stalls, 0);
+            csv_row("core", id, "self_pkts", tot[i].self_pkts, del[i].self_pkts, static_cast<double>(rate(del[i].self_pkts)));
+            csv_row("core", id, "ring_retries", tot[i].ring_retries, del[i].ring_retries, 0);
+        }
         if (requester) {
             csv_row("core", id, "req_sent", tot[i].req_sent, del[i].req_sent, static_cast<double>(rate(del[i].req_sent)));
             csv_row("core", id, "resp_matched", tot[i].resp_matched, del[i].resp_matched, static_cast<double>(rate(del[i].resp_matched)));
             csv_row("core", id, "resp_unmatched", tot[i].resp_unmatched, del[i].resp_unmatched, 0);
             csv_row("core", id, "req_lost", tot[i].req_lost, del[i].req_lost, 0);
             csv_row("core", id, "tx_batch_capped", tot[i].tx_batch_capped, del[i].tx_batch_capped, 0);
+            if (st_->cfg.traffic == TrafficKind::Esp && st_->cfg.esp_sn_check) {
+                csv_row("core", id, "sn_reorder", tot[i].sn_reorder, del[i].sn_reorder, 0);
+                csv_row("core", id, "sn_gap_pkts", tot[i].sn_gap_pkts, del[i].sn_gap_pkts, 0);
+                csv_row("core", id, "sn_max_back", tot[i].sn_max_back, 0, 0);
+                csv_row("core", id, "spi_foreign", tot[i].spi_foreign, del[i].spi_foreign, 0);
+            }
         }
     }
 }

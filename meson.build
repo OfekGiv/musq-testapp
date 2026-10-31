@@ -103,6 +103,7 @@ sources = files(
   'src/config.cpp',
   'src/bringup.cpp',
   'src/responder.cpp',
+  'src/dist.cpp',
   'src/requester.cpp',
   'src/esp_hw.cpp',
   'src/stats.cpp',

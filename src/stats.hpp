@@ -13,9 +13,12 @@
 struct CoreSnapshot {
     uint64_t rx_pkts = 0, tx_pkts = 0, tx_drops = 0, rx_bursts = 0, rx_full_bursts = 0,
              non_ipv4 = 0, work_cycles = 0, cycles_used = 0, cycles_wasted = 0,
-             req_sent = 0, resp_matched = 0, resp_unmatched = 0, req_lost = 0, tx_batch_capped = 0;
+             req_sent = 0, resp_matched = 0, resp_unmatched = 0, req_lost = 0, tx_batch_capped = 0,
+             sn_reorder = 0, sn_gap_pkts = 0, sn_max_back = 0, spi_foreign = 0;
     uint64_t doorbells = 0; /* doorbell register writes of the core's TX queues (prom-dpdk mlx5 PMD) */
     bool have_doorbells = false;
+    /* software distributor (--masters) */
+    uint64_t dealt = 0, collected = 0, rx_held = 0, stalls = 0, ring_retries = 0, self_pkts = 0;
 };
 
 class StatsReporter {

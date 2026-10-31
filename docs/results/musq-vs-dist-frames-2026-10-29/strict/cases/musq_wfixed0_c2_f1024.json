@@ -1,0 +1,25 @@
+{
+ "mode": "musq",
+ "work": "fixed:0",
+ "cores": 2,
+ "frame": 1024,
+ "wire_bytes": 1022.0,
+ "max_mpps": 19.5,
+ "forwarded_mpps": 19.502,
+ "gbps_wire": 159.45,
+ "cpu_avg": 58.06,
+ "cpu_max": 59.26,
+ "cpu_peak_1s": 59.94,
+ "cyc_per_pkt": 142.6,
+ "busy_per_lcore": {
+  "lcore2": 56.87,
+  "lcore4": 59.26
+ },
+ "first_fail_mpps": 19.75,
+ "first_fail_limit": "TX",
+ "first_fail_tx_refused_pct": 0.249,
+ "first_fail_rx_loss_pct": 0.002,
+ "first_fail_cpu_max": 59.42,
+ "runs": 11,
+ "resolution": 0.25
+}

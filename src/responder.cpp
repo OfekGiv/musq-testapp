@@ -1,79 +1,16 @@
 #include "responder.hpp"
-#include "work.hpp"
+#include "forward.hpp"
 #include "lane_epoch.hpp"
 
 #include <rte_ethdev.h>
-#include <rte_prefetch.h>
 
-static WorkSampler g_sampler;
+#include <cstring>
+
+WorkSampler g_sampler;
 
 void responder_init(const AppConfig &cfg, uint64_t tsc_hz)
 {
     g_sampler.init(cfg.work, tsc_hz);
-}
-
-/* rte_eth_tx_burst on the worker's own queue; anything refused is freed (l3fwd
- * send_burst / korba flush_tx_batch). Never more than tx_burst packets per call:
- * under mu_sq one call is one eMPW slot. */
-static inline uint16_t tx_send(WorkerCtx *w, uint16_t queue, struct rte_mbuf **m, uint16_t n)
-{
-    const uint16_t sent = rte_eth_tx_burst(w->port_id, queue, m, n);
-    w->stats.tx_pkts += sent;
-    if (unlikely(sent < n)) {
-        w->stats.tx_drops += static_cast<uint64_t>(n - sent);
-        for (uint16_t i = sent; i < n; i++)
-            rte_pktmbuf_free(m[i]);
-    }
-    return sent;
-}
-
-static inline void flush_txbuf(WorkerCtx *w, WorkerCtx::TxBuf &b)
-{
-    if (b.len == 0)
-        return;
-    tx_send(w, b.queue_id, b.m, b.len);
-    b.len = 0;
-}
-
-/* --tx-lanes > 1: the same, and keep this lane's own share of the counters. */
-static inline void flush_lane(WorkerCtx *w, WorkerCtx::TxBuf &b)
-{
-    if (b.len == 0)
-        return;
-    const uint16_t sent = tx_send(w, b.queue_id, b.m, b.len);
-    b.tx_pkts += sent;
-    b.tx_drops += static_cast<uint64_t>(b.len - sent);
-    b.len = 0;
-}
-
-/* Swap the headers so the packet goes back to its sender. Swapping IPv4
- * addresses and UDP ports keeps both checksums valid (one's-complement sums are
- * order independent), so nothing is recomputed and no TX offload is needed. */
-static inline bool swap_headers(struct rte_mbuf *m, SwapMode mode)
-{
-    auto *eth = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-    if (mode != SwapMode::None) {
-        struct rte_ether_addr tmp;
-        rte_ether_addr_copy(&eth->src_addr, &tmp);
-        rte_ether_addr_copy(&eth->dst_addr, &eth->src_addr);
-        rte_ether_addr_copy(&tmp, &eth->dst_addr);
-    }
-    if (eth->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
-        return false;
-    if (mode != SwapMode::L2L3)
-        return true;
-    auto *ip = reinterpret_cast<struct rte_ipv4_hdr *>(eth + 1);
-    const rte_be32_t tip = ip->src_addr;
-    ip->src_addr = ip->dst_addr;
-    ip->dst_addr = tip;
-    if (ip->next_proto_id == IPPROTO_UDP) {
-        auto *udp = reinterpret_cast<struct rte_udp_hdr *>(
-            reinterpret_cast<uint8_t *>(ip) + ((ip->version_ihl & 0x0f) << 2));
-        const rte_be16_t tp = udp->src_port;
-        udp->src_port = udp->dst_port;
-        udp->dst_port = tp;
-    }
-    return true;
 }
 
 int responder_loop(void *arg)
@@ -111,9 +48,19 @@ int responder_loop(void *arg)
 
     uint64_t prev_drain = rte_rdtsc();
     s.loop_start_tsc = prev_drain;
+    uint64_t t_prev = prev_drain;
+    bool prev_busy = false;
 
     while (!st->force_quit) {
+        /* One TSC read per pass: the cycles since the previous read belong to
+         * the previous pass, busy if it handled packets, wasted if it polled
+         * nothing. */
         const uint64_t t0 = rte_rdtsc();
+        if (prev_busy)
+            s.cycles_used += t0 - t_prev;
+        else
+            s.cycles_wasted += t0 - t_prev;
+        t_prev = t0;
 
         lane_epoch_tick(w, t0);
 
@@ -145,46 +92,15 @@ int responder_loop(void *arg)
         const uint16_t nb_rx = rte_eth_rx_burst(port, rxq, pkts, rx_burst);
         if (unlikely(multi_rxq))
             rxq = static_cast<uint16_t>(rxq + 1 == rxq_end ? rxq0 : rxq + 1);
-        if (nb_rx == 0) {
-            s.cycles_wasted += rte_rdtsc() - t0;
+        prev_busy = nb_rx != 0;
+        if (nb_rx == 0)
             continue;
-        }
         s.rx_bursts++;
         s.rx_pkts += nb_rx;
         if (nb_rx == rx_burst)
             s.rx_full_bursts++;
 
-        for (uint16_t i = 0; i < nb_rx; i++) {
-            if (i + 1 < nb_rx)
-                rte_prefetch0(pkts[i + 1]);
-            if (i + 2 < nb_rx)
-                rte_prefetch0(rte_pktmbuf_mtod(pkts[i + 2], void *));
-            struct rte_mbuf *m = pkts[i];
-
-            request_header *rh = nullptr;
-            struct rte_udp_hdr *rh_udp = nullptr;
-            if (work_on) {
-                uint64_t cyc;
-                if (header_work) {
-                    rh = find_request_header(m, &rh_udp);
-                    cyc = rh ? static_cast<uint64_t>(rh->processing_time_us) * g_sampler.cycles_per_us : 0;
-                } else {
-                    cyc = sample_cycles(g_sampler, w->prng, m);
-                }
-                if (cyc) {
-                    busy_wait_cycles(cyc);
-                    s.work_cycles += cyc;
-                }
-            }
-            if (!swap_headers(m, swap))
-                s.non_ipv4++;
-            if (rh) {
-                rh->magic_number = RESPONSE_MAGIC;
-                /* Payload changed: a UDP checksum would be wrong now, zero = none. */
-                if (rh_udp)
-                    rh_udp->dgram_cksum = 0;
-            }
-        }
+        process_burst(w, pkts, nb_rx, work_on, header_work, swap);
 
         if (unlikely(nb_lanes != 1)) {
             /* One lcore, several TX queues (mu_sq lanes): deal the packets to
@@ -208,13 +124,24 @@ int responder_loop(void *arg)
             tx_send(w, txq, pkts, nb_rx);
         } else {
             WorkerCtx::TxBuf &b = w->txbuf[0];
-            for (uint16_t i = 0; i < nb_rx; i++) {
-                b.m[b.len++] = pkts[i];
-                if (b.len == tx_burst)
-                    flush_txbuf(w, b);
+            uint16_t len = b.len;
+            if (len == 0 && nb_rx == tx_burst) {
+                /* A whole TX burst with nothing buffered: send it as it is. */
+                tx_send(w, txq, pkts, nb_rx);
+            } else {
+                for (uint16_t i = 0; i < nb_rx;) {
+                    const uint16_t n = RTE_MIN(static_cast<uint16_t>(nb_rx - i), static_cast<uint16_t>(tx_burst - len));
+                    memcpy(&b.m[len], &pkts[i], n * sizeof(pkts[0]));
+                    len = static_cast<uint16_t>(len + n);
+                    i = static_cast<uint16_t>(i + n);
+                    if (len == tx_burst) {
+                        tx_send(w, txq, b.m, len);
+                        len = 0;
+                    }
+                }
+                b.len = len;
             }
         }
-        s.cycles_used += rte_rdtsc() - t0;
     }
 
     /* Do not transmit after the stop request: just release what is buffered. */

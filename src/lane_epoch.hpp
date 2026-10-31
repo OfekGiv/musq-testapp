@@ -74,9 +74,15 @@ bool lane_doorbells(uint16_t port, uint16_t queue, uint64_t *doorbells);
 /* Resolve the PMD accessor and allocate one log per worker. Returns 0 when the
  * feature is off or ready, -1 on error. */
 int lane_epoch_init(AppState &st);
-/* Check that the loaded mlx5 PMD's mu_sq slot size matches --pkts-per-wqe.
- * Returns 0 when it matches or cannot be checked (no accessor), -1 on mismatch. */
+/* Check that the loaded mlx5 PMD's mu_sq slot size matches --pkts-per-wqe and
+ * that every group's master runs the configured group size. Returns 0 when it
+ * matches or cannot be checked (no accessor), -1 on mismatch. */
 int lane_slot_check(const AppState &st);
+/* Check that the PMD formed --musq-groups mu_sq groups (rte_pmd_mlx5_txq_mu_group)
+ * and log each group's queues and SQNs. -1 when the PMD predates multi-group
+ * mu_sq or formed another number of groups; 0 when it matches or the PMD's
+ * symbols are not visible in this build. */
+int lane_group_check(const AppState &st);
 /* Write all logs to cfg.lane_epoch_out (call after the workers have stopped). */
 void lane_epoch_dump(AppState &st);
 void lane_epoch_cleanup(AppState &st);

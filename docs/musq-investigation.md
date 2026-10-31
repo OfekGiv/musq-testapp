@@ -40,6 +40,8 @@ app on the prom-dpdk mlx5 PMD) receives packets and sends them back; the
 ## Host state to restore first
 
 The setup below does not survive a reboot. Check it before any run.
+`scripts/setup_hugepages_pause.sh danger51 danger50` sets the first four rows
+(hugepages, mounts, pause off) on both hosts and prints the result.
 
 | item | danger50 | danger51 | how to set |
 |---|---|---|---|
@@ -48,6 +50,9 @@ The setup below does not survive a reboot. Check it before any run.
 | 1 GB hugetlbfs mounts | `/mnt/huge-1G`, `/mnt/huge` | same | `sudo mount -t hugetlbfs -o pagesize=1G nodev /mnt/huge-1G` (and `/mnt/huge`) |
 | global pause | off | off | `sudo ethtool -A enp23s0f1np1 rx off tx off` |
 | automatic NUMA balancing | on (not changed, not tested there) | off | `sudo sysctl -w kernel.numa_balancing=0` |
+| device IRQs off the lane CPUs | irqbalance running (not changed) | all on odd (node 1) CPUs, set 2026-10-18 | `echo aaaaaaaa \| sudo tee /proc/irq/default_smp_affinity`, then `seq -s, 1 2 31` into every `/proc/irq/*/smp_affinity_list` (megasas, dmar and the timer refuse; they do not fire on polling lanes) |
+| swappiness, RT throttling | 0, -1 | 0, -1 | `sudo sysctl -w vm.swappiness=0 kernel.sched_rt_runtime_us=-1` |
+| CPU governor on CPUs 0, 2-16 | performance (set 2026-10-22, again 2026-10-27 after the reboot) | performance (same) | `echo performance \| sudo tee /sys/devices/system/cpu/cpu{0,2,4,6,8,10,12,14,16}/cpufreq/scaling_governor`; with schedutil + nohz_full a lane core can stay at 1.4 GHz, which inflates busy % |
 
 With pause on, a receiver that falls behind pauses the link and caps the
 sender's TX, which makes every loss figure misleading. With NUMA balancing on,
@@ -103,6 +108,50 @@ targets were pending in that build directory.
   of no packets rings what is held back, which the responder sends for a lane
   that was idle for `--tx-drain-us`. Installed in the 1-packet PMD only. Not
   yet run with traffic.
+- **Software distributor** (2026-10-25, `--masters`; README, "Software
+  distributor"): the software alternative to mu_sq for the comparison. A master
+  lcore receives, deals the packets to worker lcores over SPSC rings, takes them
+  back in arrival order (`--dist-order rr`: round-robin deal and collect, no
+  sequence numbers; `seqn`: master-kept sequence numbers and a reorder buffer,
+  optionally least-loaded dealing) and transmits on its own queue; the workers
+  only process. Overload shows as RX missed (the master stops receiving when a
+  worker is a ring behind), not as TX drops. Checked the same day (UDP 128 B,
+  2 x 4 Mpps, `--work header`): every request matched for rr, seqn, seqn + lb,
+  chunks of 8, immediate TX and two masters; the finding-9 stream test with
+  `--work exp:300` on four workers is IDENTICAL for rr, seqn and seqn + lb; with
+  1 us of work per packet the master holds RX and the excess shows as RX missed.
+  At 8 Mpps the master costs about 290 cycles per packet with 5-packet bursts
+  (per-pass overhead, not a ceiling). The plain responder path is unchanged by
+  the shared per-packet code (`src/forward.hpp`): 38 cycles/pkt and 61.6 Mpps
+  on one core at 64 B before and after. Not measured against mu_sq yet.
+- **Split distributor** (2026-10-27 evening, `--tx-masters`; README, "Software
+  distributor"): each master's collecting and sending half on a second lcore
+  (`DistRole::TxMaster`; `src/dist.cpp` runs one master loop template with the
+  RX and TX halves as template flags; the link state is in dealer-owned and
+  collector-owned cache lines, the collector's count read lazily with
+  acquire/release). Matching and stream tests pass; finding 19 measures it
+  (no gain). Harness: finding 18's with `RESP_MODE=split`,
+  [results/swdist-split-2026-10-27/harness](results/swdist-split-2026-10-27/harness/).
+- **The master works too** (2026-10-27 evening, `--dist-self <n>`; README,
+  "Software distributor"): the master is one more slot of its own round
+  robin and keeps n packets per cycle for itself whenever a worker is behind
+  (`--dist-self-backlog` 128 tokens in its input ring) and the master had
+  idle passes lately (`--dist-self-idle` 5 % of the last 1024), processing
+  them in place in its FIFO right after dealing the burst; rr records the slot's length per
+  cycle for the collector, seqn and lb treat it as one more link. Order
+  verified by the stream test under backlog (rr, seqn, lb: IDENTICAL). The
+  first version cost the master 6 to 12 cycles per packet with self off (a
+  lambda in the per-packet deal loop and a 4 KB staging array): the self
+  support is now a template flag so the plain path compiles to the previous
+  code, and the self path's per-packet loop is the same loop (34.5 Mpps, 69
+  cycles, either way). Finding 20 measures it.
+- **Work-matrix harness** (2026-10-27,
+  [results/musq-vs-swdist-work-2026-10-27/harness](results/musq-vs-swdist-work-2026-10-27/harness/)):
+  `one_run.sh` with `RESP_MODE=musq|dist|plain`, `WORK=<spec>` and
+  `TRAFFIC=esp|udp|esp_sw`; `sat.py` (one saturation run per layout, core count
+  and work level), `strict_points.py` (finding-16 strict search from a matrix
+  point), `rtt_runs.py` + `rtt.py` (requester RTT percentiles with
+  `--work header` and readable ESP), `sat_table.py`, `plot.py`.
 - **`scripts/musq_lane_wq.py`** prints it per interval:
   `sudo scripts/musq_lane_wq.py -i 1`, or `--raw` for the cumulative counters.
 - **`/mlx5/musq/txq_status`** (already in prom-dpdk) adds per-lane `wqe_ci`,
@@ -696,6 +745,454 @@ offered rate.
   the best settings (26.1 and 26.3 Mpps at 28 offered). With the defaults the
   single TX queue stops at 23.6 Mpps: it rings two doorbells per 32 WQEs, 1.5 M
   register writes per second.
+
+### 16. Two, four and eight cores across frame sizes (2026-10-22)
+
+The highest offered rate forwarded before the TX queue overflows, one lane per core,
+1 packet per WQE, `MUSQ_BUILD=o3`, `--rxd 1024 --txd <1024 x lanes>
+--devargs mu_sq_comp_n=128 --db-wqes 128`, ESP frames of each size from 8 requester
+lcores with `--esp-encap hw`, performance governor on both hosts. A rate passes when TX
+refused and RX lost are each at most 0.01 % over the steady window; each value below
+passed three runs and the next step (0.5 Mpps, 0.25 from 1024 B) failed. 178 runs;
+method, raw CSVs and graph in
+[results/musq-ppw1-cores-frames-2026-10-22](results/musq-ppw1-cores-frames-2026-10-22/README.md).
+
+![mu_sq 2/4/8 cores vs frame size](results/musq-ppw1-cores-frames-2026-10-22/musq-ppw1-cores-frames.png)
+
+| frame (wire) | 2 cores: Mpps, busy avg/max | 4 cores | 8 cores |
+|---|---|---|---|
+| 98 | 42.0, 90.6 / 91.2 % | 45.0, 62.1 / 62.6 % | 42.0, 46.7 / 47.0 % |
+| 128 (126) | 41.5, 88.9 / 89.4 % | 44.5, 60.3 / 60.8 % | 41.5, 44.6 / 45.0 % |
+| 256 (254) | 38.0, 84.6 / 85.3 % | 39.5, 48.9 / 49.6 % | 35.5, 36.6 / 36.9 % |
+| 512 (510) | 29.5, 73.6 / 74.8 % | 29.5, 47.2 / 47.7 % | 27.0, 40.4 / 40.6 % |
+| 1024 (1022) | 19.75, 58.4 / 60.0 % | 20.0, 45.1 / 45.4 % | 19.5, 43.3 / 43.5 % |
+| 1518 | 14.5, 48.8 / 49.9 % | 15.25, 42.0 / 42.4 % | 15.25, 37.3 / 37.7 % |
+
+- **Every point is limited by TX refusals.** Nothing was lost on RX in any of the
+  178 runs, the generator always delivered the target (≥ 99.95 %), and the lanes
+  received equal shares (within 0.005 %).
+- **Small frames: four cores are best, by 3 Mpps.** Two cores reach 42 Mpps at 98 B
+  with 91 % busy cores; four reach 45 Mpps at 62 %; eight fall back to 42 Mpps at
+  47 %. The overflow is soft there: the next 0.5 Mpps refuses only 0.01 to 0.04 %
+  (0.1 to 0.2 % with eight cores).
+- **From 256 B (four and eight cores) and 512 B (all) the queue overflows hard**:
+  the next step refuses 1.7 to 6.4 %. The ceiling follows bytes: about 120 Gbps at
+  510 B, 160 at 1022 B, 176 to 185 at 1518 B, against 38, 23 and 16.4 Mpps for
+  these sizes from stock testpmd io on this port (2026-10-16, two plain queues): mu_sq
+  is 22 % below it at 512 B and within 7 % at 1518 B. Eight cores are 2.5 Mpps below
+  two and four at 256 and 512 B.
+- **CPU.** Busy % per core falls with more cores, but the total does not: at 42 Mpps
+  and 98 B two cores spend 103 busy cycles per packet each, eight spend 213. With
+  more lanes each core handles fewer packets per loop pass.
+- Against finding 15 (2 cores, 256 B, `--txd 8192 --rxd 4096`, -O2 PMD, "without
+  loss" = everything forwarded): 36 Mpps there, 38.0 here with a quarter of the
+  ring. The pass rule differs (0.01 % here), so this is not a like-for-like gain.
+- In about a quarter of the passing runs the first, partial traffic window shows a
+  start-up burst of refusals (at most 0.12 % of that window's packets); the steady
+  window leaves it out.
+
+### 17. The software distributor against mu_sq, first sweep (2026-10-25)
+
+The software alternative (`--masters`, README "Software distributor": one master
+lcore receives, deals the packets to worker lcores over rings, collects them in
+arrival order and transmits; the workers only process) measured by the method of
+finding 16: ESP frames from 8 requester lcores with NIC encapsulation, pass = RX
+lost and TX refused each ≤ 0.01 %, three passing runs, 0.5 Mpps resolution. One
+master plus two workers (3 cores), the master's best settings (`--rx-burst 64
+--tx-burst 64`, chunks of 32 packets per worker, `rr` order). Data, harness and the
+saturation runs that led to the settings:
+[results/swdist-cores-frames-2026-10-25](results/swdist-cores-frames-2026-10-25/README.md).
+
+| frame (wire) | SW 1 master + 2 workers | master busy, cycles/pkt | workers busy | mu_sq 2 cores (finding 16) | mu_sq 4 cores |
+|---|---|---|---|---|---|
+| 98 | 34.0 Mpps | 100 %, 70 | 21-22 % | 42.0 Mpps, 91 % | 45.0, 62 % |
+| 128 (126) | 34.0 | 100 %, 70 | 22 % | 41.5, 89 % | 44.5, 60 % |
+| 256 (254) | 30.5 | 100 %, 78 | 21-22 % | 38.0, 85 % | 39.5, 49 % |
+
+- **The master is the ceiling**, at 100 % busy and 70 to 78 cycles per packet:
+  one core's RX + TX cost (a run-to-completion core forwarding alone costs 73
+  cycles and reaches 31.4 Mpps at 256 B in a saturation run). The worker count
+  does not move it: saturation runs gave 31.6 Mpps at 256 B with 1, 3 and 7
+  workers alike. mu_sq's ceiling is the NIC's shared send queue, with CPU left on
+  the lanes.
+- **mu_sq forwards 19 to 20 % more with two cores than the distributor with
+  three** (42 vs 34, 38 vs 30.5), and 24 % more with four. The distributor's
+  workers are almost idle (21-22 %): at these rates the software design has about
+  1.6 cores of processing headroom, the two mu_sq lanes 10 to 15 % each. With real
+  per-packet work the comparison shifts towards the distributor until the master
+  saturates; not measured yet.
+- **What the master pays** (saturation runs, 256 B, 64 Mpps offered): with the
+  mbuf pointers crossing the rings and per-packet round robin a master managed 17
+  to 19 Mpps at 125 to 166 cycles, worse with more workers (ring operations per
+  pass grow with the worker count). Passing a token (frame address and length)
+  instead, so that no worker touches an mbuf and the mbuf cache lines stay with
+  the master, saved 24 to 30 cycles in every configuration; dealing whole bursts
+  (chunk 32) and 64-packet bursts took it to 75 cycles. TX inlining, the o3 PMD
+  build, immediate TX and two RX queues changed nothing. `seqn` (sequence numbers
+  and a reorder buffer) costs 94 cycles tuned.
+- The knee is soft: the next 0.5 Mpps loses 0.6 to 1.2 % on RX at 98/128 B and
+  0.12 % at 256 B. Nothing was refused on TX; the master's single queue never
+  filled.
+- Conditions differ from finding 16 in the governor (schedutil; the lane CPUs
+  were at 2400 MHz when sampled) and numa_balancing (1; each run is shorter than
+  its first scan). Same requester, frames and pass rule.
+- **Plain UDP instead of ESP (2026-10-27,
+  [udp-2026-10-27](results/swdist-cores-frames-2026-10-25/udp-2026-10-27/README.md)):**
+  the distributor does not need the ESP steering, so the same sweep with UDP
+  requests gives 34.5 / 34.0 / 30.5 Mpps at 98 / 128 / 256 B (equal to ESP within
+  one 0.5 Mpps step) and 35.5 Mpps at 64 B, master at 67 to 78 cycles per packet.
+  The frame contents do not matter to the master, which never reads them.
+
+### 18. mu_sq against the software distributor with per-packet work (2026-10-27)
+
+The question finding 17 left open: with real work per packet, which layout
+forwards more for the same number of cores? Measured at equal total cores
+(mu_sq groups are powers of two): mu_sq N lanes, the distributor 1 master +
+N-1 workers, and plain RSS with N run-to-completion cores (no ordering, the
+upper bound), N = 2, 4, 8; mock work `--work fixed:<ns>` of 0 to 800 ns per
+packet (the spin costs its nominal cycles plus 30 to 90); 128 B frames, 80 Mpps
+offered, the forwarded rate over the steady window as the capacity. Hosts on
+the performance governor, numa_balancing 0 (set that day). Setup, data, graph
+and harness in
+[results/musq-vs-swdist-work-2026-10-27](results/musq-vs-swdist-work-2026-10-27/README.md).
+
+![mu_sq vs distributor vs plain RSS against work](results/musq-vs-swdist-work-2026-10-27/musq-vs-swdist-work.png)
+
+- **The mu_sq ceilings of finding 16 reproduce on the performance governor**
+  (strict rule, ESP, 66 runs): 2 lanes 42.5 / 41.5 / 38 Mpps, 4 lanes 45 /
+  44.5 / 38.5, 8 lanes 42.5 / 42 / 36 at 98 / 128 / 256 B, every row within
+  one 0.5 Mpps step of 2026-10-22. The governor did not matter for mu_sq, and
+  finding 17's distributor numbers (schedutil) stand against them.
+
+| work/pkt, 128 B | 2 cores: mu_sq / dist / plain Mpps | 4 cores | 8 cores | mu_sq vs dist, 2 / 4 / 8 | mu_sq vs plain |
+|---|---|---|---|---|---|
+| 0 | 41.1 / 32.7 / 65.1 | 42.6 / 34.4 / 80 (= offered) | 39.3 / 34.7 / 80 | +26 / +24 / +13 % | -37 / -47 / -51 % |
+| 50 ns | 17.7 / 11.8 / 20.6 | 34.8 / 35.0 / 41.0 | 36.3 / 34.8 / 80 | +50 / 0 / +4 % | -14 / -15 / -55 % |
+| 100 ns | 11.8 / 7.1 / 13.0 | 23.2 / 21.2 / 25.8 | 37.7 / 34.8 / 51.4 | +67 / +10 / +8 % | -10 / -10 / -27 % |
+| 200 ns | 7.8 / 4.4 / 8.3 | 15.5 / 13.1 / 16.5 | 31.1 / 30.6 / 33.0 | +79 / +18 / +2 % | -6 / -6 / -6 % |
+| 400 ns | 4.4 / 2.3 / 4.5 | 8.7 / 7.0 / 9.0 | 17.5 / 16.3 / 18.0 | +89 / +25 / +7 % | -3 / -3 / -3 % |
+| 800 ns | 2.3 / 1.2 / 2.4 | 4.6 / 3.6 / 4.8 | 9.3 / 8.4 / 9.5 | +93 / +29 / +10 % | -3 / -3 / -3 % |
+
+- **Without work the ordered layouts are walls and plain RSS is not:** mu_sq
+  39 to 43 Mpps (the shared send queue), the distributor 33 to 35 (the master),
+  plain RSS 65 Mpps on two cores and the whole 80 offered on four and eight.
+- **With work the comparison is a core count.** From 100 ns on every layout
+  is CPU-bound: a mu_sq lane costs its work plus 75 cycles per packet, a
+  distributor worker its work plus 23 (no RX, no TX), a plain core its work plus
+  65, and the distributor has one core fewer doing the work (the master is 22 %
+  busy at 800 ns, but dedicated). mu_sq's lead therefore tends to N / (N - 1)
+  times the ratio of the per-packet costs: 2x at 2 cores, +29 % at 4, +10 % at 8.
+- **They tie at 4 cores and 50 ns** (35 Mpps both): three workers at 205
+  cycles saturate exactly where the master does, four lanes at 274 cycles
+  reach the same. At 8 cores mu_sq is held by its queue up to about 150 ns
+  (36 to 39 Mpps with the lanes at 100 % busy on refusals), the distributor by
+  its master up to about 200 ns; from 200 ns on they are 2 to 10 % apart.
+- **Ordering costs little once there is work.** mu_sq is 3 % behind plain RSS
+  at 400 and 800 ns at every core count (a lane spends about 60 cycles per
+  packet more than a plain core on the shared queue), 6 % at 200 ns, 10 to
+  15 % at 50 to 100 ns, and 37 to 51 % with no work. The distributor is behind
+  plain by the master's share of the cores: 3 % at 8 cores and 800 ns, 100 % at
+  2 cores.
+
+- **Uneven work changes nothing at saturation.** `exp:<mean>` instead of
+  `fixed:` forwards 1 to 3 % less at 100 ns and 6 to 7 % less at 200 ns, by the
+  same amount in all three layouts, plain RSS included (the longer spins, not
+  the order); mu_sq's lead over the distributor is unchanged.
+- **Strict rule at the crossover points** (78 runs): saturation runs are 1 to
+  6 % optimistic, mu_sq's more so, because near CPU saturation mu_sq fails on
+  TX refusals (0.01 to 0.03 % one step up), not on RX loss: a lane that falls
+  slightly behind holds the others' slots in ring order. The distributor's
+  workers are decoupled by their rings; it fails only on RX. Strict standings
+  at 128 B: 4 cores, 50 ns: distributor 34, mu_sq 33; 100 ns: mu_sq 22 vs 21 (4
+  cores), 39.5 vs 34 (8 cores, wall against master), 11 vs 7 (2 cores); 8 cores,
+  200 ns: 30.5 vs 30. Plain RSS 3 to 14 % ahead of the better one.
+
+- **Latency** (requester RTT, responder `--tx-mode immediate --work header`,
+  35 runs): without work mu_sq and the distributor are equal and 1 to 3 us over
+  plain RSS (p50 8 to 9 us, p99 11 to 13 at 16 Mpps; 11 to 13 / 14 to 18 at
+  30 Mpps against plain's 6 to 8 / 9 to 12), **provided mu_sq runs with the
+  PMD's own doorbell rule**: `--db-wqes 128` (finding 13's +1 Mpps of wall)
+  makes a lane ring every 128 WQEs, p50 18 / 29 / 53 us at 2 / 4 / 8 lanes and
+  16 Mpps, 150 to 270 us with 1 us of work at low rates. With 1 us of work per
+  packet the distributor's chunk of 32 costs p50 16 to 30 us (plain 5 to 6);
+  `--dist-chunk 1` restores plain's 6 / 8 / 9 us at the finding-17 master cost;
+  mu_sq (PMD doorbell) is at p50 11 to 13, p99 20 to 23 us.
+- **In one line:** mu_sq's advantage over the software distributor is the
+  master core it saves. Without work that is the queue's 39 to 43 Mpps against
+  the master's 33 to 35; with work it is N / (N - 1) corrected by the per-packet
+  costs, 2x at 2 cores and 2 to 10 % at 8, and the strict rule gives the
+  distributor two of the five crossover points by 2 to 3 %. Both are 37 to 55 %
+  behind plain RSS without work and within 3 to 6 % of it from 200 ns of work
+  per packet on.
+
+### 19. The split distributor: RX master and TX master (2026-10-27, evening)
+
+Finding 18 put the distributor's wall at the master, one core's RX plus TX
+cost (69 cycles, 34 to 35 Mpps). The user asked to test the obvious lever, a
+two-stage pipeline: `--tx-masters` gives each master a second lcore, the master
+(now the RX master) only receives and deals, the TX master collects the
+workers' returns in arrival order and sends on the master's TX queue. The two
+share the per-worker FIFOs (written before the token enters a ring, read after
+it comes back out, so the rings' release/acquire order carries the writes) and
+the collector's count per worker, which the dealer reads only when its own
+copy says a worker is at the limit; every other field lives in one half's
+cache lines. Verified by the matching test (rr; seqn + lb, immediate mode) and
+the stream test (16 M chunks, six workers with `exp:300` work: IDENTICAL for
+rr and seqn). Measured at 4 and 8 cores (RX master + TX master + N-2 workers)
+against the single master (run again on the rebuilt binary), mu_sq and plain
+RSS of finding 18, 128 B, 80 Mpps offered. Setup, tables, graph and harness in
+[results/swdist-split-2026-10-27](results/swdist-split-2026-10-27/README.md).
+
+![split distributor vs single master vs mu_sq vs plain RSS](results/swdist-split-2026-10-27/swdist-split.png)
+
+| work/pkt, 128 B | 4 cores: split / dist / mu_sq Mpps | 8 cores | split vs dist, 4 / 8 |
+|---|---|---|---|
+| 0 | 33.6 / 34.7 / 42.6 | 34.0 / 34.5 / 39.3 | -3 / -1 % |
+| 50 ns | 23.6 / 34.6 / 34.8 | 34.2 / 33.8 / 36.3 | -32 / +1 % |
+| 100 ns | 14.1 / 21.1 / 23.2 | 34.2 / 33.7 / 37.7 | -33 / +1 % |
+| 200 ns | 8.7 / 13.1 / 15.5 | 26.2 / 30.6 / 31.1 | -33 / -14 % |
+| 800 ns | 2.4 / 3.6 / 4.6 | 7.2 / 8.4 / 9.3 | -33 / -14 % |
+
+- **The split does not move the wall.** The RX master alone costs 70 to 71
+  cycles per packet at 99 % busy, as much as the whole single master (69),
+  and the TX master another 60 at 85 %: 131 cycles on two cores for what one
+  core does in 69. Unloaded (8 cores, 400 to 800 ns) the halves cost 51 + 36
+  against 62. The 25 (unloaded) to 60 (saturated) extra cycles are the mbuf's
+  hand-over: its first line is written by the RX PMD on one core, read by the
+  TX PMD on the other and written again on the next refill, and the pointer
+  goes round through the mempool ring. The link state was made cheap by design
+  and is (one FIFO line per 8 packets, the counter never read at these rates).
+- **With work the split is the single master minus one worker:** -14 % at 8
+  cores from 200 ns on (6/7), -33 % at 4 cores (2/3); +1 % in the band where
+  the master is the limit and the 6 workers are not (8 cores, 50 to 100 ns).
+  Against mu_sq it is 13 to 48 % behind everywhere.
+- **Latency** is the single master's: p50 8 us at 16 Mpps, 10 against 11 at
+  30 Mpps (the TX side sends as soon as the returns are in), and the same
+  chunk-of-32 cost with 1 us of work (p50 17 and 31 us).
+- **Strict rule** (42 runs, 128 B): split 33.5 Mpps against the single
+  master's 34.0 at 4 cores without work, 8 cores without work and 8 cores
+  with 100 ns, one 0.5 step below in every pair; both fail on RX loss at the
+  next step, the master (or RX master) at 96 to 100 % busy.
+- **In one line:** the master's cost is the NIC work of one core, not the
+  dealing; splitting RX from TX moves the mbuf between cores, which costs more
+  than the TX work it moves, so the wall of a single-stream software
+  distributor is one core's RX + TX on this PMD (34 to 35 Mpps at 128 B).
+  What is left: a NIC core + dealer core split (the mbufs never leave the NIC
+  core; estimate +8 to 15 %, mu_sq's 8-lane level, for one core more) and
+  several masters over RSS, which doubles the wall but splits the stream.
+
+### 20. The improved distributor: the master works too (2026-10-27, late evening)
+
+The user asked for the best version of the distributor, to evaluate mu_sq
+against it properly. Findings 18 and 19 had located its two losses: the
+master's wall (one core's RX + TX, 34 to 35 Mpps) and, with per-packet work,
+a master that idles while N−1 workers carry the load against mu_sq's N lanes.
+Three steps: a settings sweep of the master (8 cores, no work: bursts,
+chunks, immediate TX, ring depths, two RX queues, `seqn`, the stock DPDK
+v25.11 PMD), `--dist-self` (the master becomes one more slot of its own round
+robin and keeps a chunk per cycle for itself whenever a worker is behind,
+measured as tokens waiting in its input ring, and the master itself had idle
+passes lately; README, "Software distributor"), and the finding-18 matrix
+again with the result (2, 4 and 8 cores, 128 B, 0 to 800 ns, saturation),
+against finding 18's mu_sq, first distributor and plain RSS rows (same day,
+same state). Setup, tables, graph and harness in
+[results/swdist-best-2026-10-27](results/swdist-best-2026-10-27/README.md).
+
+![best distributor vs finding 18](results/swdist-best-2026-10-27/swdist-best.png)
+
+| work/pkt, 128 B | 2 cores: best / dist / mu_sq Mpps | 4 cores | 8 cores | best vs mu_sq, 2 / 4 / 8 |
+|---|---|---|---|---|
+| 0 | 32.8 / 32.7 / 41.1 | 34.3 / 34.4 / 42.6 | 34.4 / 34.7 / 39.3 | -20 / -19 / -12 % |
+| 50 ns | 18.4 / 11.8 / 17.7 | 34.4 / 35.0 / 34.8 | 34.5 / 34.7 / 36.3 | +4 / -1 / -5 % |
+| 100 ns | 12.1 / 7.1 / 11.8 | 23.7 / 21.1 / 23.2 | 34.4 / 34.8 / 37.7 | +3 / +2 / -9 % |
+| 200 ns | 7.9 / 4.4 / 7.8 | 15.7 / 13.1 / 15.5 | 31.1 / 30.6 / 31.1 | +1 / +2 / 0 % |
+| 400 ns | 4.4 / 2.3 / 4.4 | 8.8 / 7.0 / 8.7 | 17.5 / 16.3 / 17.4 | +1 / +1 / 0 % |
+| 800 ns | 2.3 / 1.2 / 2.3 | 4.7 / 3.6 / 4.6 | 9.3 / 8.4 / 9.3 | +1 / 0 / 0 % |
+
+- **The master's settings were already optimal.** Bigger bursts, rx 128,
+  immediate TX, deeper rings, two RX queues: all within 0.5 % of 34.5 Mpps;
+  smaller chunks and `seqn` cost. The stock PMD with two RX queues gains 4 %
+  (36.0 at 67 cycles), the only setting that moves the wall; not used, the
+  comparison stays on mu_sq's PMD.
+- **With the master working too, the distributor equals mu_sq wherever the
+  cores are the limit**: within ±2 % from 50 ns at 2 cores (1 to 4 % ahead),
+  from 100 ns at 4 cores and from 200 ns at 8, the exp rows included. The
+  master takes 35 to 49 % of the packets at 2 cores, 11 to 23 % at 4, 1 to
+  9 % at 8, and runs at 98 to 100 % busy: its cost per packet received is 69
+  plus its share times the work (100 cycles at 4 cores and 100 ns, 256 at 8
+  cores and 800 ns). Against the first distributor that is +56 to +95 % at 2
+  cores, +10 to +29 % at 4 from 100 ns on, +2 to +10 % at 8 from 200 ns on.
+- **mu_sq's remaining lead is the wall, and only the wall**: 12 to 20 %
+  without work and 5 to 9 % at 8 cores with 50 to 100 ns, where the shared
+  send queue's 36 to 43 Mpps stand against one core's RX + TX at 34. Below
+  that the two are the same machine: N cores of work with the same per-packet
+  overhead within a few cycles.
+- **Two policy details mattered.** Backlog must be the worker's input-ring
+  count, not packets outstanding (returns waiting for the collector are not
+  backlog), and the master must take a share only when its own recent passes
+  had idle time; without both it took work while it was the bottleneck (4
+  cores, 50 ns: 33.0 against 35.0) or stalled its dealing until the workers
+  ran dry (8 cores, 200 ns: 29.2 against 30.6). With them no row is below the
+  first distributor beyond the 2 % spread, and the self slot costs nothing at
+  the wall (34.7 against 34.5). Order verified by the stream test with the
+  master taking 1.4 to 2.3 M of 16 M chunks (rr, seqn, lb: IDENTICAL).
+- **Latency is unchanged** (the self slot is never taken below capacity):
+  p50 8 us at 16 Mpps, 11 at 30, and the chunk-of-32 cost with 1 us of work
+  (16 and 31 us at 4 and 8 cores; 5 us at 2 cores, where the one worker gets
+  every chunk at once).
+- A regression on the way: the first `--dist-self` build cost the plain path
+  6 to 12 cycles per packet (a lambda in the per-packet loop, a 4 KB stack
+  array); found by an A/B against the pre-self binary, fixed by templating
+  the self support out of the plain path. Any change to the master loop
+  should be A/B'd at the 0-work wall first.
+- **Strict rule** (30 runs, 128 B): best 11.25 / 34.0 / 22.5 / 30.5 Mpps at
+  2 cores 100 ns, 4 cores 50 ns, 4 cores 100 ns, 8 cores 200 ns against
+  mu_sq's 11.0 / 33.0 / 22.0 / 30.0 of finding 18 (+2 to +3 %): the
+  distributor fails on RX loss one step later than mu_sq fails on TX
+  refusals.
+- **Addendum 2026-10-29, counted by worker cores** (the user's rule: N is the
+  distributor's workers, the master not counted, so mu_sq N lanes against
+  1 master + N workers; measured after a reboot with the host state restored,
+  a repeat point within 1 %; results/swdist-best-2026-10-27 README, addendum,
+  and the workbook results/musq-vs-distributor-2026-10-27.xlsx): without work
+  the distributor is the master's 34 Mpps wall for any N (12 to 20 % under
+  mu_sq); with work it is ahead by about the extra core, +51 to +53 % with 2
+  workers from 50 ns on, +25 to +27 % with 4 from 100 ns on, +10 to +12 % with
+  8 from 200 ns on; strict 17.25 / 28.5 / 34.0 against mu_sq's 11.0 / 22.0 /
+  30.0 at (2, 100 ns), (4, 100 ns), (8, 200 ns). mu_sq leads only at 0 ns and
+  at N = 8 up to 100 ns.
+- **In one line:** the best software distributor is mu_sq's equal from 50 to
+  200 ns of work per packet on (the earlier the fewer the cores), and behind
+  it only where the master's RX + TX wall is below the shared send queue:
+  12 to 20 % without work, 5 to 9 % at 8 cores with 50 to 100 ns. What mu_sq
+  buys on this NIC is therefore the 36 to 43 Mpps single-stream wall against
+  34 for one core's RX + TX, not the per-core efficiency.
+
+### 21. Frame-size sweep at 2 worker cores: mu_sq 2 lanes against 1 master + 2 workers (2026-10-29)
+
+The user's request: throughput against the frame size, 128 / 256 / 512 /
+1024 B, mu_sq with 2 lanes against the best distributor with 2 workers (plus
+its master), no work and 100 / 200 ns per packet; saturation runs and the
+strict rule at the no-work walls; ESP encapsulated by the requester's NIC.
+Setup, tables and harness in
+[results/musq-vs-dist-frames-2026-10-29](results/musq-vs-dist-frames-2026-10-29/README.md),
+the charts in `results/musq-vs-distributor-frames-2026-10-29.xlsx`.
+
+| frame | mu_sq: loss-free / saturated Mpps | distributor: loss-free / saturated | distributor, 2 RX queues: loss-free / saturated | 100 ns: mu_sq / dist | 200 ns: mu_sq / dist |
+|---|---|---|---|---|---|
+| 128 B | 40.5 / 40.9 | 34.0 / 34.2 | 29.0 / 35.8 | 11.8 / 17.9 | 7.8 / 11.8 |
+| 256 B | 38.0 / 36.6 | 30.5 / 31.4 | 29.5 / 35.5 | 11.8 / 17.9 | 7.8 / 11.8 |
+| 512 B | 29.5 / 26.5 | 25.0 / 25.1 | 30.0 / 31.3 | 11.8 / 17.8 | 7.8 / 11.8 |
+| 1024 B | 19.5 / 12.6 | 16.75 / 16.8 | 22.0 / 22.2 | 11.8 / 16.8 | 7.8 / 11.8 |
+
+- **Without work mu_sq's loss-free ceiling leads the distributor's by 16 to
+  25 % at every frame size** (the shared send queue against one core's RX +
+  TX); mu_sq fails on TX refusals at the next step, the distributor on RX
+  loss at its master.
+- **Under overload mu_sq collapses at the larger frames**: 26.5 Mpps
+  saturated against 29.5 loss-free at 512 B, 12.6 against 19.5 at 1024 B,
+  with 44 to 54 % of the packets refused at TX (a refused packet has cost its
+  lane the RX and the send attempt, and the queue's slots stay occupied). The
+  distributor's two numbers agree within 3 % everywhere (its master holds RX
+  instead of refusing). mu_sq at large frames must be judged by the loss-free
+  ceiling, never by an overload run.
+- **The distributor's single RX queue caps it at 512 and 1024 B** (master
+  80 % busy at 1024 B). Two RX queues on the master (`--rx-queues 2`, order
+  kept per flow) lift the loss-free ceiling to 30.0 and 22.0 Mpps there, 2
+  and 13 % above mu_sq, but lower it to 29.0 and 29.5 at 128 and 256 B (the
+  uneven RSS split drops first): one queue up to 256 B, two from 512 B on.
+- **With work the frame size is irrelevant** (the cores are the limit): the
+  distributor is 50 to 52 % ahead at every size, its extra core, except
+  1024 B at 100 ns where the single RX queue caps it at 16.8 (+42 %).
+
+### 22. What limits one queue: RX queue, plain SQ and mu_sq at 128 B (2026-10-31)
+
+The user's question: mu_sq forwards about 44 Mpps, testpmd with one queue stops at
+about 37 (35 at 128 B); if a single queue is the limit, why do they differ, and is
+the mu_sq test wrong? Offered-rate ladders, 89 runs, a fresh DUT each. Method and
+data: [results/queue-limits-2026-10-31](results/queue-limits-2026-10-31/README.md);
+charts: results/queue-limits-128B-2026-10-31.xlsx.
+
+| Layout, 128 B | Nothing lost up to | Most forwarded | What stops it |
+|---|---|---|---|
+| testpmd: 1 RX queue, 1 TX queue | 34 Mpps | 35.6 | RX: excess lost on RX, nothing refused, core 90 % |
+| musq-testapp: 1 RX queue, 1 TX queue | 34 Mpps | 35.4 | RX: same, core 97 % |
+| musq-testapp: 2 RX queues, 1 TX queue, multi-packet WQEs | 60 Mpps | 62.1 | the core (100 %), nothing refused |
+| musq-testapp: 2 RX queues, 1 TX queue, 1 packet per WQE | 38 Mpps | 42.6 | TX: refused with RX complete, 42 to 48 offered |
+| mu_sq: 2 cores, 2 RX queues, shared ring, 1 packet per WQE | 41 Mpps | 43.7 | TX: refused with RX complete, up to 56 offered |
+
+- **The mu_sq rate is real.** In all 89 runs the port counters agree across the link
+  with difference 0 (danger50 TX = danger51 RX, danger51 TX = danger50 RX, 211 to
+  451 M packets per run), and the wire counter is within 0.003 Mpps of the driver's TX
+  count. About 44 Mpps forwarded means about 1 % refused at 44 offered; the loss-free
+  rate is 41.
+- **The two numbers are limits of different queues.** One RX queue stops at about
+  35 Mpps at 128 B. This is not an effect of overload: paced runs level off there
+  whether 36 or 60 Mpps is offered, the excess lost on RX. mu_sq has an RX queue per
+  lane, about 22 Mpps each, so that limit never applies.
+- **One send queue at one WQE per packet stops at about 43 M WQEs per second, with no
+  sharing.** The same plain queue carries 62 Mpps with multi-packet WQEs, so the limit
+  follows WQEs, not packets. The core is close to full in that run (97 to 100 %), but
+  a core that runs out shows as RX loss with room in the ring; from 42 to 48 offered
+  it is the reverse, and RX loss joins only from 52.
+- **Sharing the ring costs little at this frame size:** mu_sq is within 3 % of the
+  plain queue, so its ceiling here looks like the same one-WQE-per-packet limit. This
+  corrects the reading in findings 13 and 15 that the limit is "the SQ's" as such: it
+  is the WQE rate of one send queue, and multi-packet WQEs avoid it.
+- **Not settled:** the two runs differ in more than sharing (UDP and RSS against ESP
+  and esp_rr, SEND WQEs against one-packet eMPW slots, doorbell and completion
+  settings, loop flags, one core against two), so the 2.6 % gap is not an advantage of
+  either. What sets 43 M WQEs per second inside the NIC, and why one RX queue stops at
+  35 Mpps with the core at 90 %, are not visible from these runs.
+
+### 23. Several mu_sq groups per port: what was built and the first checks (2026-10-31)
+
+The user wanted G groups on one port, each its own shared ring, with flows spread
+over the groups "like RSS". Where the hash may live follows from the ordering
+argument: a group keeps order only because lane l gets exactly every N-th packet
+of *that group's* stream, so the group must be chosen in the NIC ahead of the
+round robin; a core reading `mbuf->hash.rss` and re-dispatching would leave holes
+in the other groups' rings and stall them. Built (uncommitted, README "Several
+groups"):
+
+- **PMD** (prom-dpdk): the group state moved from the device-shared context to
+  the port (`mlx5_priv.mu_groups`), one `struct mlx5_mu_group` per
+  `mu_sq_log_grp_size` consecutive TX queues (master g·N, its own DevX SQ with N
+  SQNs, CQ and doorbell records; `txqs_n % N != 0` is refused instead of
+  silently aliasing the first group). The datapath reads per-queue copies
+  (`mu_log_grp`, `mu_sqn_8s`) instead of `sh->mu_group`, which also makes the
+  WQE SQN stamping branch-free and correct for plain multi-queue ports.
+  Telemetry rows carry `group`, `lane`, `sqn`; new `rte_pmd_mlx5_txq_mu_group()`.
+- **Steering SDK**: `l3fwd_doca_pipelines_init_groups(G, N, burst)`; esp_rr =
+  ROOT → `DOCA_FLOW_PIPE_HASH` (G entries, outer IPv4 src + dst, the HASH
+  algorithm with a mask works on this ConnectX-9; ROUND_ROBIN does not) →
+  STEER_g (SN bits round robin over queues g·N..). `calc_hash` predicts the
+  hardware exactly. meta_rr refuses G > 1.
+- **App**: `--musq-groups`, `--hash-probe`, Group row and per-queue RX rows,
+  `group` column in the epoch CSV, a stale-PMD guard. Requester: one IPsec SA
+  per lcore (`--esp-sa lcore`, SPI base + index, own NIC SN counter),
+  `--src-ips`, and an ESP SN order check on every response (SPI and SN are
+  clear text): rows "ESP SN reorders / max back / gap pkts / foreign SPI".
+
+First checks (2 × 2, 1 packet per WQE, `mu_sq_comp_n=128 --db-wqes 128`, 2
+requester lcores at 2 Mpps each, 6 M responses per lcore, hw encap):
+
+| requester | groups | SN reorders | max back | responder TX drops | lanes of group 0 |
+|---|---|---|---|---|---|
+| one SA per lcore, `--src-ips 1.1.1.1,1.1.1.2` | 0 and 1 | 0 | 0 | 0 | 4,014,473 / 4,014,472 |
+| one SA per lcore, `--src-ips 1.1.1.1,1.1.1.3` | both 0 | 12.4 % | 1 | 0 | 8,028,881 / 8,028,879 |
+| `--esp-sa port`, `--src-ips 1.1.1.1,1.1.1.2` | 0 and 1 | 49 % | 4,879 | 361 k per group | 3,974,257 / 4,054,572 |
+
+So: one flow per group keeps order exactly and the lanes even to one packet; two
+SAs in one group reorder each other by adjacent swaps (finding 9) but stay
+balanced; one port-wide SN stream split by the hash is the failure mode — random
+`SN mod N` inside a group, unbounded lane skew, refusals on the leading lane.
+The steering-only check before the PMD work (mu_sq off, 4 flows, sw encap) gave
+the hash split 9,043,839 : 3,014,621 exactly as predicted per flow. The G = 1
+start logs are unchanged apart from the new group line (SQN 0x1e80..0x1e81, CQ 16
+entries); the G = 1 throughput A/B against the `.bak-before-groups` PMD and the
+2 × 2 against 1 × 4 against 1 × 2 ladders (128 B, strict and max, into a
+workbook with one marker per line) are the next runs.
 
 ## Design constraints agreed
 

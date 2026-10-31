@@ -1,0 +1,26 @@
+{
+ "mode": "bestw",
+ "work": "fixed:0",
+ "cores": 2,
+ "frame": 256,
+ "wire_bytes": 254.0,
+ "max_mpps": 30.5,
+ "forwarded_mpps": 30.51,
+ "gbps_wire": 62.0,
+ "cpu_avg": 47.71,
+ "cpu_max": 99.94,
+ "cpu_peak_1s": 99.95,
+ "cyc_per_pkt": 48.8,
+ "busy_per_lcore": {
+  "lcore2": 99.94,
+  "lcore4": 22.34,
+  "lcore6": 20.85
+ },
+ "first_fail_mpps": 31.0,
+ "first_fail_limit": "RX",
+ "first_fail_tx_refused_pct": 0.0,
+ "first_fail_rx_loss_pct": 0.607,
+ "first_fail_cpu_max": 99.98,
+ "runs": 9,
+ "resolution": 0.5
+}

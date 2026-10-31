@@ -1,11 +1,15 @@
 #include "bringup.hpp"
 #include "config.hpp"
+#include "dist.hpp"
 
 #include <rte_ethdev.h>
 #include <rte_cycles.h>
 #include <rte_random.h>
 #include <rte_malloc.h>
 
+#include <arpa/inet.h>
+
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 
@@ -40,19 +44,43 @@ int doca_probe(const AppConfig &cfg)
 #endif
 }
 
-int doca_init(const AppConfig &cfg, unsigned nb_workers)
+int doca_init(const AppConfig &cfg, unsigned groups, unsigned lanes)
 {
 #if ENABLE_DOCA
-    APP_LOG_INFO("installing DOCA %s pipeline: %u queues, steering group %u",
-                 doca_mode_name(cfg.doca_mode), nb_workers, cfg.doca_group);
-    if (l3fwd_doca_pipelines_init(static_cast<uint16_t>(nb_workers), cfg.doca_group) < 0) {
+    APP_LOG_INFO("installing DOCA %s pipeline: %u group(s) x %u queues, steering group %u",
+                 doca_mode_name(cfg.doca_mode), groups, lanes, cfg.doca_group);
+    if (l3fwd_doca_pipelines_init_groups(static_cast<uint16_t>(groups), static_cast<uint16_t>(lanes),
+                                         cfg.doca_group) < 0) {
         APP_LOG_ERR("DOCA pipeline init failed");
         return -1;
+    }
+    if (!cfg.hash_probe_src.empty()) {
+        /* Which group each probe flow lands in, from the hash pipe's own
+         * function: the way to pick requester source IPs that fall into
+         * distinct groups. */
+        struct in_addr src, dst;
+        inet_pton(AF_INET, cfg.hash_probe_src.c_str(), &src);
+        inet_pton(AF_INET, cfg.hash_probe_dst.c_str(), &dst);
+        for (unsigned i = 0; i < cfg.hash_probe_n; i++) {
+            struct in_addr s;
+            s.s_addr = rte_cpu_to_be_32(rte_be_to_cpu_32(src.s_addr) + i);
+            char ss[INET_ADDRSTRLEN], ds[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &s, ss, sizeof(ss));
+            inet_ntop(AF_INET, &dst, ds, sizeof(ds));
+            uint16_t g = 0;
+            if (l3fwd_doca_pipelines_group_of_ipv4(s.s_addr, dst.s_addr, &g) < 0) {
+                APP_LOG_WARN("hash probe: %s -> %s: the pipeline cannot compute the hash", ss, ds);
+                break;
+            }
+            APP_LOG_INFO("hash probe: %s -> %s lands in group %u (RX queues %u..%u)", ss, ds, g, g * lanes,
+                         g * lanes + lanes - 1);
+        }
     }
     return 0;
 #else
     (void)cfg;
-    (void)nb_workers;
+    (void)groups;
+    (void)lanes;
     return -1;
 #endif
 }
@@ -66,31 +94,86 @@ void doca_cleanup()
 
 int setup_workers(AppState &st)
 {
+    const AppConfig &cfg = st.cfg;
     for (unsigned i = 0; i < RTE_MAX_LCORE; i++)
         st.lcore_to_worker[i] = -1;
-    unsigned idx = 0;
+    unsigned idx = 0, nb_masters = 0, nb_tx_masters = 0, nb_plain = 0;
+    const unsigned wpm = cfg.workers_per_master();
+    auto position = [](const std::vector<unsigned> &v, unsigned l) -> int {
+        const auto it = std::find(v.begin(), v.end(), l);
+        return it == v.end() ? -1 : static_cast<int>(it - v.begin());
+    };
     unsigned lcore;
     RTE_LCORE_FOREACH_WORKER(lcore) {
         WorkerCtx &w = st.workers[idx];
         w.lcore_id = lcore;
         w.worker_idx = static_cast<uint16_t>(idx);
         w.port_id = st.port_id;
-        w.queue_id = static_cast<uint16_t>(idx * st.cfg.rx_queues);
-        w.nb_rx_queues = static_cast<uint16_t>(st.cfg.rx_queues);
-        w.role = st.cfg.role;
-        w.nb_tx_lanes = static_cast<uint16_t>(st.cfg.tx_lanes);
-        w.next_lane = 0;
-        for (unsigned l = 0; l < st.cfg.tx_lanes; l++) {
-            w.txbuf[l].len = 0;
-            w.txbuf[l].queue_id = static_cast<uint16_t>(idx * st.cfg.tx_lanes + l);
-        }
+        w.role = cfg.role;
         w.prng = rte_rand() | 1;
         st.lcore_to_worker[lcore] = static_cast<int>(idx);
         idx++;
+        /* Master index: the lcore's position in --masters (sorted, so lcore
+         * order); a TX master's is its position in --tx-masters, which pairs
+         * it with the master of the same index. */
+        const int mpos = cfg.dist() ? position(cfg.masters, lcore) : -1;
+        const int tpos = cfg.dist_split() ? position(cfg.tx_masters, lcore) : -1;
+        if (cfg.dist() && mpos < 0 && tpos < 0) {
+            /* Software worker (--masters): no NIC queues and no pool; worker j
+             * in lcore order belongs to master j / workers-per-master. */
+            w.dist_role = DistRole::Worker;
+            w.master_idx = static_cast<uint16_t>(wpm ? nb_plain / wpm : 0);
+            w.queue_id = 0;
+            w.nb_rx_queues = 0;
+            w.nb_tx_lanes = 0;
+            nb_plain++;
+            continue;
+        }
+        if (tpos >= 0) {
+            /* TX master (--tx-masters): its master's TX queue, no RX queue, no
+             * pool of its own (it frees into its master's). */
+            w.dist_role = DistRole::TxMaster;
+            w.master_idx = static_cast<uint16_t>(tpos);
+            w.queue_id = 0;
+            w.nb_rx_queues = 0;
+            w.nb_tx_lanes = 1;
+            w.next_lane = 0;
+            w.txbuf[0].len = 0;
+            w.txbuf[0].queue_id = static_cast<uint16_t>(tpos);
+            nb_tx_masters++;
+            continue;
+        }
+        /* Owner of NIC queues: a master (queue ids by master index) or, outside
+         * the distributor mode, a worker (by worker index). */
+        unsigned q;
+        if (mpos >= 0) {
+            w.dist_role = DistRole::Master;
+            w.master_idx = static_cast<uint16_t>(mpos);
+            q = static_cast<unsigned>(mpos);
+            nb_masters++;
+        } else {
+            q = nb_plain++;
+        }
+        w.queue_id = static_cast<uint16_t>(q * cfg.rx_queues);
+        w.nb_rx_queues = static_cast<uint16_t>(cfg.rx_queues);
+        /* With --tx-masters the master's TX queue is its TX master's. */
+        w.nb_tx_lanes = static_cast<uint16_t>(mpos >= 0 && cfg.dist_split() ? 0 : cfg.tx_lanes);
+        w.next_lane = 0;
+        for (unsigned l = 0; l < cfg.tx_lanes; l++) {
+            w.txbuf[l].len = 0;
+            w.txbuf[l].queue_id = static_cast<uint16_t>(q * cfg.tx_lanes + l);
+        }
+        /* --musq-groups: group g = queues g*N..g*N+N-1 (one RX and one TX
+         * queue per lcore there), the lane is the queue's offset in it. */
+        const unsigned per_group = cfg.group_rx_queues();
+        w.musq_group = static_cast<uint16_t>(per_group ? w.queue_id / per_group : 0);
+        w.lane_in_group = static_cast<uint16_t>(per_group ? w.queue_id % per_group : 0);
     }
     st.nb_workers = idx;
-    if (idx != st.cfg.nb_workers()) {
-        APP_LOG_ERR("EAL reports %u worker lcores, config has %u", idx, st.cfg.nb_workers());
+    if (idx != cfg.nb_lcores() || nb_masters != cfg.nb_masters() || nb_tx_masters != cfg.tx_masters.size() ||
+        nb_plain != cfg.nb_workers()) {
+        APP_LOG_ERR("EAL reports %u worker lcores (%u masters, %u TX masters), config has %u (%u, %zu)", idx,
+                    nb_masters, nb_tx_masters, cfg.nb_lcores(), cfg.nb_masters(), cfg.tx_masters.size());
         return -1;
     }
     const int nic_socket = rte_eth_dev_socket_id(st.port_id);
@@ -103,13 +186,21 @@ int setup_workers(AppState &st)
     return 0;
 }
 
-static unsigned pool_size_for(const AppConfig &cfg, unsigned nb_workers)
+static unsigned pool_size_for(const AppConfig &cfg, unsigned nb_owners)
 {
-    /* Per worker: its RX rings + TX rings in flight + bursts in the app; then
-     * some headroom, rounded to 2^n - 1 (optimum for rte_mempool). */
-    uint64_t n = static_cast<uint64_t>(nb_workers) *
-                     (cfg.rx_queues * cfg.rxd + cfg.tx_lanes * (cfg.txd + MAX_BURST) + MAX_BURST) +
-                 static_cast<uint64_t>(nb_workers) * RTE_MEMPOOL_CACHE_MAX_SIZE;
+    /* Per queue owner (a worker, or a master with --masters): its RX rings +
+     * TX rings in flight + bursts in the app; with --masters also what each
+     * of its workers can hold (at most the ring size) and the reorder buffer;
+     * then some headroom, rounded to 2^n - 1 (optimum for rte_mempool). */
+    uint64_t per = static_cast<uint64_t>(cfg.rx_queues) * cfg.rxd + cfg.tx_lanes * (cfg.txd + MAX_BURST) + MAX_BURST;
+    if (cfg.dist()) {
+        per += static_cast<uint64_t>(cfg.workers_per_master() + (cfg.dist_self ? 1 : 0)) * (cfg.dist_ring + MAX_BURST);
+        if (cfg.dist_order == DistOrder::Seqn)
+            per += dist_rob_size(cfg);
+        if (cfg.dist_split()) /* the TX master's mempool cache (flushed at 1.5 x its size) */
+            per += 2 * RTE_MEMPOOL_CACHE_MAX_SIZE;
+    }
+    uint64_t n = static_cast<uint64_t>(nb_owners) * per + static_cast<uint64_t>(nb_owners) * RTE_MEMPOOL_CACHE_MAX_SIZE;
     n = n + n / 4;
     if (n < 8192)
         n = 8192;
@@ -128,6 +219,8 @@ int create_pools(AppState &st)
     if (cfg.per_lcore_pool) {
         const unsigned n = pool_size_for(cfg, 1);
         for (unsigned i = 0; i < st.nb_workers; i++) {
+            if (st.workers[i].dist_role == DistRole::Worker || st.workers[i].dist_role == DistRole::TxMaster)
+                continue; /* no RX queue: its mbufs come from its master's pool */
             char name[RTE_MEMPOOL_NAMESIZE];
             snprintf(name, sizeof(name), "mbuf_pool_lc%u", st.workers[i].lcore_id);
             struct rte_mempool *p = rte_pktmbuf_pool_create(name, n, RTE_MEMPOOL_CACHE_MAX_SIZE, 0,
@@ -141,7 +234,7 @@ int create_pools(AppState &st)
             APP_LOG_INFO("mempool %s: %u mbufs on socket %d", name, n, socket);
         }
     } else {
-        const unsigned n = pool_size_for(cfg, st.nb_workers);
+        const unsigned n = pool_size_for(cfg, cfg.nb_queue_lcores());
         struct rte_mempool *p = rte_pktmbuf_pool_create("mbuf_pool", n, RTE_MEMPOOL_CACHE_MAX_SIZE, 0,
                                                         RTE_MBUF_DEFAULT_BUF_SIZE, socket);
         if (p == nullptr) {
@@ -149,7 +242,8 @@ int create_pools(AppState &st)
             return -1;
         }
         for (unsigned i = 0; i < st.nb_workers; i++)
-            st.workers[i].pool = p;
+            if (st.workers[i].dist_role != DistRole::Worker && st.workers[i].dist_role != DistRole::TxMaster)
+                st.workers[i].pool = p;
         st.pools.push_back(p);
         APP_LOG_INFO("mempool mbuf_pool: %u mbufs on socket %d (shared)", n, socket);
     }
@@ -184,8 +278,8 @@ int configure_port(AppState &st)
 {
     const AppConfig &cfg = st.cfg;
     const uint16_t port = st.port_id;
-    const uint16_t nq = static_cast<uint16_t>(st.nb_workers * cfg.rx_queues);
-    const uint16_t ntxq = static_cast<uint16_t>(st.nb_workers * cfg.tx_lanes);
+    const uint16_t nq = static_cast<uint16_t>(cfg.nb_rx_queues());
+    const uint16_t ntxq = static_cast<uint16_t>(cfg.nb_tx_queues());
     struct rte_eth_dev_info dev_info;
     int ret = rte_eth_dev_info_get(port, &dev_info);
     if (ret != 0) {
@@ -202,7 +296,9 @@ int configure_port(AppState &st)
     struct rte_eth_conf conf;
     memset(&conf, 0, sizeof(conf));
     conf.rxmode.mq_mode = nq > 1 ? RTE_ETH_MQ_RX_RSS : RTE_ETH_MQ_RX_NONE;
-    conf.rxmode.offloads = RTE_ETH_RX_OFFLOAD_CHECKSUM & dev_info.rx_offload_capa;
+    /* No RX offloads: nothing reads the checksum flags (testpmd's default too),
+     * and each one costs the PMD's RX path per packet. */
+    conf.rxmode.offloads = 0;
     conf.rx_adv_conf.rss_conf.rss_key = nullptr;
     /* Hash on L4 ports too (korba), not only IP (l3fwd): a single IP pair with
      * many UDP ports then spreads over the queues in plain RSS mode. In DOCA
@@ -240,6 +336,8 @@ int configure_port(AppState &st)
 
     for (unsigned i = 0; i < st.nb_workers; i++) {
         WorkerCtx &w = st.workers[i];
+        if (w.dist_role == DistRole::Worker)
+            continue; /* software worker: no NIC queues (dist_init logs it) */
         const unsigned socket = rte_lcore_to_socket_id(w.lcore_id);
         struct rte_eth_txconf txconf = dev_info.default_txconf;
         txconf.offloads = conf.txmode.offloads;
@@ -260,7 +358,14 @@ int configure_port(AppState &st)
                 return -1;
             }
         }
-        if (w.nb_rx_queues > 1)
+        if (w.dist_role == DistRole::TxMaster)
+            APP_LOG_INFO("lcore %u: port %u tx queue %u (TX master of master %u), socket %u",
+                         w.lcore_id, port, w.txbuf[0].queue_id, w.master_idx, socket);
+        else if (w.nb_tx_lanes == 0)
+            APP_LOG_INFO("lcore %u: port %u rx queue(s) %u..%u (RX master, tx queue %u on its TX master), pool %s, socket %u",
+                         w.lcore_id, port, w.queue_id, w.queue_id + w.nb_rx_queues - 1, w.master_idx, w.pool->name,
+                         socket);
+        else if (w.nb_rx_queues > 1)
             APP_LOG_INFO("lcore %u: port %u rx queues %u..%u (polled in turn), tx queue(s) %u..%u, pool %s, socket %u",
                          w.lcore_id, port, w.queue_id, w.queue_id + w.nb_rx_queues - 1, w.txbuf[0].queue_id,
                          w.txbuf[w.nb_tx_lanes - 1].queue_id, w.pool->name, socket);
@@ -271,6 +376,8 @@ int configure_port(AppState &st)
             APP_LOG_INFO("lcore %u: port %u rx queue %u, tx queues %u..%u (%u lanes dealt in turn), pool %s, socket %u",
                          w.lcore_id, port, w.queue_id, w.txbuf[0].queue_id,
                          w.txbuf[w.nb_tx_lanes - 1].queue_id, w.nb_tx_lanes, w.pool->name, socket);
+        if (cfg.musq_groups > 1)
+            APP_LOG_INFO("lcore %u: mu_sq group %u, lane %u", w.lcore_id, w.musq_group, w.lane_in_group);
     }
 
     ret = rte_eth_dev_start(port);

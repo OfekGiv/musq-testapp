@@ -1,0 +1,26 @@
+22:18:46 matrix start: modes best cores 2,4,8 works fixed:0,fixed:50,fixed:100,fixed:200,fixed:400,fixed:800,exp:100,exp:200 frame 128 offer 80.0 Mpps, out /homes/ofekdg/musq-testapp/docs/results/swdist-best-2026-10-27/sat
+22:19:00   best  c2 fixed:0    f128: offered 79.97 fwd 32.76 Mpps loss 59.0 % refused 0.000 % | master 100 % 73 cyc, lanes busy 33-33 % cyc 24-24, rx spread 0.0 %
+22:19:16   best  c4 fixed:0    f128: offered 79.96 fwd 34.33 Mpps loss 57.1 % refused 0.000 % | master 100 % 70 cyc, lanes busy 17-18 % cyc 35-39, rx spread 66.7 %
+22:19:32   best  c8 fixed:0    f128: offered 79.97 fwd 34.43 Mpps loss 57.0 % refused 0.000 % | master 100 % 70 cyc, lanes busy 7-8 % cyc 35-41, rx spread 85.7 %
+22:19:48   best  c2 fixed:50   f128: offered 79.98 fwd 18.38 Mpps loss 77.0 % refused 0.000 % | master 99 % 129 cyc, self 6.50 Mpps, lanes busy 100-100 % cyc 202-202, rx spread 35.4 %
+22:20:05   best  c4 fixed:50   f128: offered 79.97 fwd 34.42 Mpps loss 57.0 % refused 0.000 % | master 100 % 70 cyc, lanes busy 99-99 % cyc 207-207, rx spread 66.7 %
+22:20:21   best  c8 fixed:50   f128: offered 79.97 fwd 34.46 Mpps loss 56.9 % refused 0.000 % | master 100 % 69 cyc, lanes busy 45-46 % cyc 221-224, rx spread 85.7 %
+22:20:37   best  c2 fixed:100  f128: offered 79.98 fwd 12.05 Mpps loss 84.9 % refused 0.000 % | master 99 % 197 cyc, self 5.00 Mpps, lanes busy 100-100 % cyc 339-339, rx spread 41.5 %
+22:20:53   best  c4 fixed:100  f128: offered 79.96 fwd 23.71 Mpps loss 70.3 % refused 0.000 % | master 99 % 100 cyc, self 2.58 Mpps, lanes busy 100-100 % cyc 340-340, rx spread 70.3 %
+22:21:09   best  c8 fixed:100  f128: offered 79.97 fwd 34.39 Mpps loss 57.0 % refused 0.000 % | master 100 % 70 cyc, lanes busy 72-73 % cyc 353-356, rx spread 85.7 %
+22:21:25   best  c2 fixed:200  f128: offered 80.00 fwd 7.93 Mpps loss 90.1 % refused 0.000 % | master 99 % 300 cyc, self 3.55 Mpps, lanes busy 100-100 % cyc 547-547, rx spread 44.8 %
+22:21:41   best  c4 fixed:200  f128: offered 79.96 fwd 15.71 Mpps loss 80.4 % refused 0.000 % | master 99 % 151 cyc, self 2.59 Mpps, lanes busy 100-100 % cyc 547-547, rx spread 72.2 %
+22:21:57   best  c8 fixed:200  f128: offered 79.97 fwd 31.07 Mpps loss 61.1 % refused 0.000 % | master 99 % 76 cyc, self 0.44 Mpps, lanes busy 100-100 % cyc 545-547, rx spread 85.9 %
+22:22:14   best  c2 fixed:400  f128: offered 80.01 fwd 4.43 Mpps loss 94.5 % refused 0.000 % | master 99 % 538 cyc, self 2.09 Mpps, lanes busy 100-100 % cyc 1022-1022, rx spread 47.1 %
+22:22:30   best  c4 fixed:400  f128: offered 80.00 fwd 8.81 Mpps loss 89.0 % refused 0.000 % | master 99 % 270 cyc, self 1.79 Mpps, lanes busy 100-100 % cyc 1020-1022, rx spread 73.5 %
+22:22:46   best  c8 fixed:400  f128: offered 79.97 fwd 17.47 Mpps loss 78.2 % refused 0.000 % | master 98 % 135 cyc, self 1.14 Mpps, lanes busy 99-100 % cyc 1019-1025, rx spread 86.6 %
+22:23:02   best  c2 fixed:800  f128: offered 80.03 fwd 2.33 Mpps loss 97.1 % refused 0.000 % | master 100 % 1022 cyc, self 1.14 Mpps, lanes busy 100-100 % cyc 1997-1997, rx spread 48.6 %
+22:23:18   best  c4 fixed:800  f128: offered 80.00 fwd 4.65 Mpps loss 94.2 % refused 0.000 % | master 99 % 511 cyc, self 1.06 Mpps, lanes busy 100-100 % cyc 1995-1997, rx spread 74.2 %
+22:23:34   best  c8 fixed:800  f128: offered 79.97 fwd 9.26 Mpps loss 88.4 % refused 0.000 % | master 99 % 256 cyc, self 0.87 Mpps, lanes busy 100-100 % cyc 1995-1996, rx spread 87.1 %
+22:23:50   best  c2 exp:100    f128: offered 80.01 fwd 11.71 Mpps loss 85.4 % refused 0.000 % | master 99 % 203 cyc, self 4.87 Mpps, lanes busy 100-100 % cyc 350-350, rx spread 41.5 %
+22:24:07   best  c4 exp:100    f128: offered 79.98 fwd 23.02 Mpps loss 71.2 % refused 0.000 % | master 99 % 103 cyc, self 2.59 Mpps, lanes busy 100-100 % cyc 350-351, rx spread 70.4 %
+22:24:23   best  c8 exp:100    f128: offered 79.97 fwd 34.37 Mpps loss 57.0 % refused 0.000 % | master 100 % 70 cyc, lanes busy 75-76 % cyc 367-371, rx spread 85.7 %
+22:24:39   best  c2 exp:200    f128: offered 79.98 fwd 7.37 Mpps loss 90.8 % refused 0.000 % | master 99 % 323 cyc, self 3.32 Mpps, lanes busy 100-100 % cyc 591-591, rx spread 45.0 %
+22:24:55   best  c4 exp:200    f128: offered 79.98 fwd 14.57 Mpps loss 81.8 % refused 0.000 % | master 99 % 163 cyc, self 2.47 Mpps, lanes busy 100-100 % cyc 591-592, rx spread 72.3 %
+22:25:11   best  c8 exp:200    f128: offered 79.97 fwd 28.76 Mpps loss 64.0 % refused 0.000 % | master 98 % 82 cyc, self 0.67 Mpps, lanes busy 99-99 % cyc 591-592, rx spread 86.0 %
+22:25:13 matrix done

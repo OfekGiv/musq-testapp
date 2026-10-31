@@ -3,6 +3,8 @@
 #include <cxxopts.hpp>
 #include <fmt/format.h>
 
+#include <arpa/inet.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -143,6 +145,8 @@ const char *swap_mode_name(SwapMode m)
     return "?";
 }
 const char *role_name(Role r) { return r == Role::Responder ? "responder" : "requester"; }
+const char *dist_order_name(DistOrder o) { return o == DistOrder::Seqn ? "seqn" : "rr"; }
+const char *dist_deal_name(DistDeal d) { return d == DistDeal::Lb ? "lb" : "rr"; }
 const char *tx_fill_name(TxFill f) { return f == TxFill::Prefill ? "prefill" : "copy"; }
 const char *rx_steer_name(RxSteer s)
 {
@@ -175,17 +179,19 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
 {
     cxxopts::Options opts("musq-testapp",
         "Receive-and-send-back DPDK test app for the mu_sq / DOCA Flow mlx5 feature");
-    std::string lcores, doca_mode, tx_mode, work, swap, xstats, role, musq_group, esp_encap;
-    bool shared_pool = false, no_promisc = false;
+    std::string lcores, doca_mode, tx_mode, work, swap, xstats, role, musq_group, esp_encap, masters, tx_masters;
+    bool shared_pool = false, no_promisc = false, no_esp_sn_check = false;
     opts.add_options()
         ("pci", "PCI BDF of the data-path port", cxxopts::value<std::string>()->default_value(cfg.pci))
         ("devargs", "Extra mlx5 devargs (appended after mu_sq_log_grp_size)", cxxopts::value<std::string>()->default_value(""))
-        ("musq-group", "mu_sq group size: auto (= number of workers), 0 (off) or a power of 2 <= 128", cxxopts::value<std::string>()->default_value("auto"))
+        ("musq-group", "mu_sq group size (lanes per group): auto (= TX queues / --musq-groups; 0 with --masters), 0 (off) or a power of 2 <= 128", cxxopts::value<std::string>()->default_value("auto"))
+        ("musq-groups", "mu_sq groups on the port, each its own shared TX ring (power of 2 <= 64): group g = TX queues g*N..g*N+N-1 with N lanes (--musq-group), so --lcores is G x N lcores, one RX and one TX queue each. In a DOCA mode the NIC hashes a flow (outer IPv4 src+dst) to one group and round-robins inside it (esp_rr only). Needs the prom-dpdk PMD with multi-group mu_sq", cxxopts::value<unsigned>()->default_value("1"))
+        ("hash-probe", "responder, DOCA mode with --musq-groups > 1: <src-ip>[+n]:<dst-ip>. Log at start which group each of the n flows src-ip, src-ip+1, .. -> dst-ip lands in (the requester sends from --src-ip + lcore index), e.g. 1.1.1.1+8:2.2.2.2", cxxopts::value<std::string>()->default_value(""))
         ("l,lcores", "Worker lcores, e.g. 2,4,6,8 or 2-8", cxxopts::value<std::string>())
         ("main-lcore", "Lcore running EAL main + stats (not a worker)", cxxopts::value<unsigned>()->default_value("0"))
         ("doca-mode", "none | meta_rr | esp_rr (DOCA Flow steering pipeline)", cxxopts::value<std::string>()->default_value("esp_rr"))
         ("doca-group", "DOCA round-robin steering group size (power of 2)", cxxopts::value<uint16_t>()->default_value("1"))
-        ("rx-burst", "rte_eth_rx_burst size (<= tx-burst)", cxxopts::value<uint16_t>()->default_value("32"))
+        ("rx-burst", "rte_eth_rx_burst size (<= tx-burst, except for a responder in accumulate mode, which splits a large RX burst into tx-burst sends)", cxxopts::value<uint16_t>()->default_value("32"))
         ("tx-burst", "Max packets per rte_eth_tx_burst call (power of 2; one mu_sq slot)", cxxopts::value<uint16_t>()->default_value("32"))
         ("tx-mode", "immediate | accumulate (buffer up to tx-burst, drain on timer)", cxxopts::value<std::string>()->default_value("accumulate"))
         ("tx-drain-us", "TX buffer drain interval in us (accumulate mode)", cxxopts::value<uint64_t>()->default_value("100"))
@@ -218,11 +224,24 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
         ("rx-steer", "requester: flow (each lcore sends from src-ip+index, an rte_flow rule returns its responses to its own queue) | rss (per-lcore src IP, RSS spreads responses) | none (one src IP; ESP responses all land on one queue)", cxxopts::value<std::string>()->default_value("flow"))
         ("tx-fill", "requester: prefill (dedicated TX mbuf pool per lcore, the frame template is written into every mbuf once and only the per-request fields are rewritten) | copy (rte_memcpy the whole template into each mbuf, korba behaviour)", cxxopts::value<std::string>()->default_value("prefill"))
         ("esp-encap", "requester, --traffic esp: sw (the lcores write the ESP header and sequence number; nothing is encrypted) | hw (the lcores send plain UDP frames and the NIC encapsulates them as ESP transport mode with AES-GCM: SPI, one sequence number stream counted by the NIC over all lcores together, IV, trailer and ICV; IPsec packet offload through DOCA Flow, needs the build-esphw binary that scripts/run.sh selects; responses come back encrypted and are only counted)", cxxopts::value<std::string>()->default_value("sw"))
+        ("esp-sa", "requester, --esp-encap hw: lcore (one IPsec SA per lcore: its own SPI, --esp-spi + lcore index, and its own sequence-number counter in the NIC; needs distinct source IPs) | port (one SA and one SN counter over all lcores together, the original mode; not against a responder with --musq-groups > 1, whose hash would split that one SN stream)", cxxopts::value<std::string>()->default_value("lcore"))
+        ("esp-spi", "requester, --traffic esp: SPI base (decimal or 0x..); lcore i writes/gets base + i with --esp-sa lcore (the sw encap too), base alone with --esp-sa port", cxxopts::value<std::string>()->default_value("0x1000"))
+        ("src-ips", "requester: explicit source IPv4 per lcore, comma separated in lcore order (as many as --lcores), instead of --src-ip + index; e.g. chosen from the responder's --hash-probe log so that each flow lands in its own mu_sq group", cxxopts::value<std::string>()->default_value(""))
+        ("no-esp-sn-check", "requester, --traffic esp: do not check that each lcore's responses come back with increasing ESP sequence numbers (rows \"ESP SN reorders\" etc.)", cxxopts::value<bool>(no_esp_sn_check))
         ("tx-file", "requester: stream correctness test; each lcore sends this file once as its own flow, one chunk per request ([8 B chunk index][file bytes], ESP SN = chunk index), then stops sending", cxxopts::value<std::string>()->default_value(""))
         ("rx-record", "requester: record each lcore's responses in arrival order to <prefix>.w<worker>.{data,idx,json} at exit (needs --tx-file; compare with scripts/stream_compare.py)", cxxopts::value<std::string>()->default_value(""))
         ("pkts-per-wqe", "Packets per TX WQE: 32 (default; mu_sq 32-packet slots / eMPW) or 1 (one packet per WQE: mu_sq 1-WQEBB slots, needs the 1-packet PMD build that scripts/run.sh selects; without mu_sq adds txq_mpw_en=0)", cxxopts::value<unsigned>()->default_value("32"))
         ("tx-lanes", "responder, one worker lcore: TX queues (mu_sq lanes) that lcore posts to, dealing the packets to them in turn (packet i to lane i % n), each lane with its own buffer and rte_eth_tx_burst calls: one core doing the TX work of n. A power of 2 <= 8; --musq-group auto then is n. (One lcore with ONE TX queue that drives every lane of a group itself is --tx-lanes 1 --musq-group <lanes>.)", cxxopts::value<unsigned>()->default_value("1"))
         ("rx-queues", "responder, --doca-mode none: RX queues per worker lcore, polled in turn (one rte_eth_rx_burst per queue per loop pass); RSS spreads the traffic over all workers' queues. TX is unchanged: one TX queue per worker, or --tx-lanes. At most 8", cxxopts::value<unsigned>()->default_value("1"))
+        ("masters", "responder: software distributor. These lcores receive, deal the packets to the worker lcores (--lcores, split evenly among the masters in lcore order) over rings, take them back in arrival order and send them on their own TX queue; the workers only process packets (--work, --swap). Master m owns RX queue(s) m*rx-queues.. and TX queue m. The software alternative to mu_sq (no mu_sq; not the EAL main lcore). See README, \"Software distributor\"", cxxopts::value<std::string>()->default_value(""))
+        ("tx-masters", "--masters: one lcore per master (paired in lcore order) that takes over the collecting and sending half of that master, a two-stage pipeline: the master then only receives and deals, the TX master collects the workers' returns in arrival order and sends them on the master's TX queue. Not in --masters, --lcores or the main lcore", cxxopts::value<std::string>()->default_value(""))
+        ("dist-order", "--masters: how a master restores the arrival order: rr (deal and collect round robin; the order is implicit, no sequence numbers) | seqn (sequence numbers kept by the master and a reorder buffer)", cxxopts::value<std::string>()->default_value("rr"))
+        ("dist-deal", "--masters: which worker gets the next chunk: rr (round robin) | lb (the one with the fewest packets in flight; needs --dist-order seqn)", cxxopts::value<std::string>()->default_value("rr"))
+        ("dist-chunk", "--masters: consecutive packets dealt to one worker before moving to the next (1 = per-packet round robin, like 1-packet mu_sq slots; 32 = whole bursts, far fewer ring operations per packet; the order is kept either way)", cxxopts::value<unsigned>()->default_value("32"))
+        ("dist-self", "--masters: the master processes up to this many packets per deal cycle itself (one more slot in the round robin, after the workers) whenever a worker has --dist-self-backlog or more packets outstanding: the workers are the limit and the master has cycles to spare. 0 = off", cxxopts::value<unsigned>()->default_value("0"))
+        ("dist-self-backlog", "--dist-self: tokens waiting in some worker's input ring from which the master takes its share", cxxopts::value<unsigned>()->default_value("128"))
+        ("dist-self-idle", "--dist-self: the master takes a share only when at least this percent of its recent loop passes (windows of 1024) were idle, i.e. it has the cycles; 0 = always when a worker is behind", cxxopts::value<unsigned>()->default_value("5"))
+        ("dist-ring", "--masters: entries of each master <-> worker ring (power of 2, >= 4 x rx-burst); a worker has at most ring - rx-burst packets in flight, beyond that the master stops receiving", cxxopts::value<unsigned>()->default_value("2048"))
         ("db-wqes", "responder with mu_sq: WQEs (mu_sq slots) a lane posts per doorbell. The PMD then rings the doorbell every that many WQEs, wherever a burst ends, instead of once per send pass (mlx5 devarg mu_sq_db_wqes; at most half the slots a lane has in the ring). A lane that posts nothing for --tx-drain-us rings what is held back. 0 = the PMD's own rule", cxxopts::value<unsigned>()->default_value("0"))
         ("lane-epoch-us", "responder: record each lane's cumulative RX/TX packets, busy/idle CPU cycles and WQ position (wqe_ci/pi/free, slots) once per epoch of this many us on a common TSC grid, dumped as CSV at exit (0 = off; the WQ columns need the prom-dpdk mlx5 PMD, DOCA build)", cxxopts::value<uint64_t>()->default_value("0"))
         ("lane-epoch-out", "CSV file for --lane-epoch-us", cxxopts::value<std::string>()->default_value("lane_epoch.csv"))
@@ -255,6 +274,32 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
             return -1;
         }
         cfg.musq_group = static_cast<int>(v);
+    }
+    cfg.musq_groups = r["musq-groups"].as<unsigned>();
+    {
+        /* <src-ip>[+n]:<dst-ip> */
+        const std::string hp = r["hash-probe"].as<std::string>();
+        if (!hp.empty()) {
+            const size_t colon = hp.find(':');
+            if (colon == std::string::npos || colon == 0 || colon + 1 >= hp.size()) {
+                fprintf(stderr, "error: --hash-probe must be <src-ip>[+n]:<dst-ip>\n");
+                return -1;
+            }
+            std::string src = hp.substr(0, colon);
+            cfg.hash_probe_dst = hp.substr(colon + 1);
+            cfg.hash_probe_n = 1;
+            const size_t plus = src.find('+');
+            if (plus != std::string::npos) {
+                uint64_t n;
+                if (!parse_u64(src.substr(plus + 1), n) || n == 0 || n > 1024) {
+                    fprintf(stderr, "error: --hash-probe: +n must be in 1..1024\n");
+                    return -1;
+                }
+                cfg.hash_probe_n = static_cast<unsigned>(n);
+                src.resize(plus);
+            }
+            cfg.hash_probe_src = src;
+        }
     }
     if (!r.count("lcores")) {
         fprintf(stderr, "error: --lcores is required\n%s\n", opts.help().c_str());
@@ -337,6 +382,31 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
     cfg.tx_lanes = r["tx-lanes"].as<unsigned>();
     cfg.rx_queues = r["rx-queues"].as<unsigned>();
     cfg.db_wqes = r["db-wqes"].as<unsigned>();
+    masters = r["masters"].as<std::string>();
+    if (!masters.empty() && !parse_lcore_list(masters, cfg.masters, err)) {
+        fprintf(stderr, "error: --masters: %s\n", err.c_str());
+        return -1;
+    }
+    tx_masters = r["tx-masters"].as<std::string>();
+    if (!tx_masters.empty() && !parse_lcore_list(tx_masters, cfg.tx_masters, err)) {
+        fprintf(stderr, "error: --tx-masters: %s\n", err.c_str());
+        return -1;
+    }
+    if (!parse_enum<DistOrder>(r["dist-order"].as<std::string>(),
+            {{"rr", DistOrder::Rr}, {"seqn", DistOrder::Seqn}}, cfg.dist_order)) {
+        fprintf(stderr, "error: --dist-order must be rr|seqn\n");
+        return -1;
+    }
+    if (!parse_enum<DistDeal>(r["dist-deal"].as<std::string>(),
+            {{"rr", DistDeal::Rr}, {"lb", DistDeal::Lb}}, cfg.dist_deal)) {
+        fprintf(stderr, "error: --dist-deal must be rr|lb\n");
+        return -1;
+    }
+    cfg.dist_chunk = r["dist-chunk"].as<unsigned>();
+    cfg.dist_ring = r["dist-ring"].as<unsigned>();
+    cfg.dist_self = r["dist-self"].as<unsigned>();
+    cfg.dist_self_backlog = r["dist-self-backlog"].as<unsigned>();
+    cfg.dist_self_idle = r["dist-self-idle"].as<unsigned>();
     cfg.lane_epoch_us = r["lane-epoch-us"].as<uint64_t>();
     cfg.lane_epoch_out = r["lane-epoch-out"].as<std::string>();
     cfg.lane_epoch_max = r["lane-epoch-max"].as<uint32_t>();
@@ -351,6 +421,28 @@ int parse_cli(int argc, char **argv, AppConfig &cfg)
         return -1;
     }
     cfg.esp_hw = esp_encap == "hw";
+    {
+        const std::string sa = r["esp-sa"].as<std::string>();
+        if (sa != "lcore" && sa != "port") {
+            fprintf(stderr, "error: --esp-sa must be lcore|port\n");
+            return -1;
+        }
+        cfg.esp_sa_per_lcore = sa == "lcore";
+        const std::string spi = r["esp-spi"].as<std::string>();
+        char *end = nullptr;
+        const unsigned long v = strtoul(spi.c_str(), &end, 0);
+        if (spi.empty() || end == nullptr || *end != '\0' || v > 0xffffffffUL) {
+            fprintf(stderr, "error: --esp-spi must be a 32-bit number (decimal or 0x..)\n");
+            return -1;
+        }
+        cfg.esp_spi = static_cast<uint32_t>(v);
+        cfg.esp_sn_check = !no_esp_sn_check;
+        std::stringstream ips(r["src-ips"].as<std::string>());
+        std::string ip;
+        while (std::getline(ips, ip, ','))
+            if (!ip.empty())
+                cfg.src_ips.push_back(ip);
+    }
     cfg.tx_file = r["tx-file"].as<std::string>();
     cfg.rx_record = r["rx-record"].as<std::string>();
     if (!parse_enum<TxFill>(r["tx-fill"].as<std::string>(),
@@ -405,23 +497,118 @@ bool validate_config(const AppConfig &cfg)
     if (cfg.rx_queues > 1 && (cfg.role != Role::Responder || cfg.doca_enabled()))
         fail("--rx-queues > 1 needs the responder role and --doca-mode none "
              "(the DOCA pipelines and the requester's flow rules steer to one queue per worker)");
+    if (cfg.dist()) {
+        const unsigned nm = cfg.nb_masters(), wpm = cfg.workers_per_master();
+        if (cfg.role != Role::Responder)
+            fail("--masters is a responder option");
+        if (std::find(cfg.masters.begin(), cfg.masters.end(), cfg.main_lcore) != cfg.masters.end())
+            fail(fmt::format("--main-lcore {} must not be in --masters", cfg.main_lcore));
+        for (unsigned m : cfg.masters)
+            if (std::find(cfg.lcores.begin(), cfg.lcores.end(), m) != cfg.lcores.end())
+                fail(fmt::format("lcore {} is in both --masters and --lcores", m));
+        if (nw % nm != 0)
+            fail(fmt::format("{} worker lcores do not split evenly among {} masters", nw, nm));
+        if (wpm == 0 || wpm > MAX_DIST_WORKERS)
+            fail(fmt::format("each master needs 1..{} workers (got {})", MAX_DIST_WORKERS, wpm));
+        if (cfg.tx_lanes > 1)
+            fail("--tx-lanes is not supported with --masters");
+        if (cfg.musq_group > 0)
+            fail("--masters is the software alternative to mu_sq: use --musq-group 0 (or auto)");
+        if (cfg.doca_enabled() && (nm > 1 || cfg.rx_queues > 1))
+            fail("a DOCA pipeline steers one flow round robin over all RX queues, which would reorder it before "
+                 "the masters: --masters with a DOCA mode needs one master and --rx-queues 1 "
+                 "(several masters: --doca-mode none, RSS keeps a flow on one queue)");
+        if (cfg.dist_split()) {
+            if (cfg.tx_masters.size() != nm)
+                fail(fmt::format("--tx-masters needs one lcore per master ({} masters, {} TX masters)", nm,
+                                 cfg.tx_masters.size()));
+            for (unsigned t : cfg.tx_masters) {
+                if (t == cfg.main_lcore)
+                    fail(fmt::format("--main-lcore {} must not be in --tx-masters", t));
+                if (std::find(cfg.masters.begin(), cfg.masters.end(), t) != cfg.masters.end())
+                    fail(fmt::format("lcore {} is in both --masters and --tx-masters", t));
+                if (std::find(cfg.lcores.begin(), cfg.lcores.end(), t) != cfg.lcores.end())
+                    fail(fmt::format("lcore {} is in both --tx-masters and --lcores", t));
+            }
+        }
+        if (cfg.dist_deal == DistDeal::Lb && cfg.dist_order != DistOrder::Seqn)
+            fail("--dist-deal lb needs --dist-order seqn (round-robin collection cannot follow it)");
+        if (cfg.dist_chunk == 0 || cfg.dist_chunk > MAX_BURST)
+            fail(fmt::format("--dist-chunk {} must be in 1..{}", cfg.dist_chunk, MAX_BURST));
+        if (cfg.dist_self > MAX_BURST)
+            fail(fmt::format("--dist-self {} must be at most {}", cfg.dist_self, MAX_BURST));
+        if (cfg.dist_self_backlog == 0 || cfg.dist_self_backlog + cfg.rx_burst >= cfg.dist_ring)
+            fail(fmt::format("--dist-self-backlog {} must be in 1..{} (ring - rx-burst - 1)", cfg.dist_self_backlog,
+                             cfg.dist_ring - cfg.rx_burst - 1));
+        if (cfg.dist_self_idle > 100)
+            fail(fmt::format("--dist-self-idle {} is a percentage", cfg.dist_self_idle));
+        if (!is_pow2(cfg.dist_ring) || cfg.dist_ring < 4u * cfg.rx_burst || cfg.dist_ring > 65536)
+            fail(fmt::format("--dist-ring {} must be a power of 2 in {}..65536 (4 x rx-burst)", cfg.dist_ring,
+                             4u * cfg.rx_burst));
+    } else if (!cfg.tx_masters.empty()) {
+        fail("--tx-masters needs --masters");
+    } else if (cfg.dist_order != DistOrder::Rr || cfg.dist_deal != DistDeal::Rr || cfg.dist_chunk != 32 ||
+               cfg.dist_ring != 2048 || cfg.dist_self != 0) {
+        warn("--dist-order/--dist-deal/--dist-chunk/--dist-ring have no effect without --masters");
+    }
     const unsigned grp = cfg.musq_group_eff();
     const unsigned ntxq = cfg.nb_tx_queues();
+    const unsigned ngrp = cfg.musq_groups;
+    if (!is_pow2(ngrp) || ngrp > MUSQ_MAX_GROUPS) {
+        fail(fmt::format("--musq-groups {} must be a power of 2 <= {}", ngrp, MUSQ_MAX_GROUPS));
+        return false;
+    }
+    if (ngrp > 1) {
+        /* Group g = queues g*N..g*N+N-1 on both sides: one RX and one TX queue
+         * per lcore, so the queue a packet is steered to is the lane that
+         * sends it back. */
+        if (cfg.role != Role::Responder)
+            fail("--musq-groups is a responder option");
+        if (cfg.dist())
+            fail("--musq-groups needs mu_sq lanes, not --masters");
+        if (cfg.rx_queues > 1 || cfg.tx_lanes > 1)
+            fail("--musq-groups > 1 needs one RX and one TX queue per lcore (no --rx-queues/--tx-lanes)");
+        if (nw % ngrp != 0 || !is_pow2(nw / ngrp))
+            fail(fmt::format("--musq-groups {}: {} lcores do not form {} groups of a power-of-2 lanes", ngrp, nw, ngrp));
+        if (!cfg.doca_enabled())
+            warn("--musq-groups with plain RSS: a flow stays on one lane, nothing is round-robinned inside a group "
+                 "(PMD smoke test only; the hash -> group -> round robin steering needs --doca-mode esp_rr)");
+        else if (cfg.doca_mode == DocaMode::MetaRr)
+            fail("--musq-groups > 1 needs --doca-mode esp_rr (meta_rr's NIC counter cannot serve several groups)");
+        if (grp == 0)
+            warn(fmt::format("--musq-group 0 with --musq-groups {}: mu_sq off, the NIC still steers {} groups of {} "
+                             "queues (steering-only test)", ngrp, ngrp, cfg.group_rx_queues()));
+    }
+    if (!cfg.hash_probe_src.empty()) {
+        struct in_addr a;
+        if (inet_pton(AF_INET, cfg.hash_probe_src.c_str(), &a) != 1 ||
+            inet_pton(AF_INET, cfg.hash_probe_dst.c_str(), &a) != 1)
+            fail("--hash-probe: bad IPv4 address");
+        if (!cfg.doca_enabled() || cfg.role != Role::Responder)
+            fail("--hash-probe needs the responder role and a DOCA mode (the hash is the steering pipeline's)");
+    }
     if (grp != 0 && (!is_pow2(grp) || grp > MUSQ_MAX_GROUP))
         fail(fmt::format("--musq-group {} must be 0 or a power of 2 <= {}", grp, MUSQ_MAX_GROUP));
-    if (grp != 0 && grp != ntxq) {
-        if (ntxq == 1)
+    if (grp != 0 && grp * ngrp != ntxq) {
+        if (ntxq == 1 && ngrp == 1)
             warn(fmt::format("--musq-group {} with one TX queue: that queue drives all {} lanes itself "
                              "(needs the prom-dpdk mlx5 PMD that supports it)", grp, grp));
         else
-            warn(fmt::format("--musq-group {} != {} TX queues; a group needs one TX queue per lane, "
-                             "or a single TX queue for all of them", grp, ntxq));
+            /* The PMD derives the group count from the TX queues and the
+             * group size: anything else aliases the first group's slots. */
+            fail(fmt::format("--musq-group {} x --musq-groups {} = {} lanes, but {} TX queues; a group needs one "
+                             "TX queue per lane", grp, ngrp, grp * ngrp, ntxq));
     }
 
     if (!is_pow2(cfg.tx_burst) || cfg.tx_burst > MAX_BURST)
         fail(fmt::format("--tx-burst {} must be a power of 2 <= {}", cfg.tx_burst, MAX_BURST));
-    if (cfg.rx_burst == 0 || cfg.rx_burst > cfg.tx_burst)
-        fail(fmt::format("--rx-burst {} must be in 1..tx-burst ({})", cfg.rx_burst, cfg.tx_burst));
+    /* A responder in accumulate mode buffers and sends tx_burst packets at a
+     * time whatever the RX burst size (e.g. 64-packet RX bursts into 32-packet
+     * mu_sq slots); in immediate mode one RX burst is one TX call. */
+    const bool big_rx_ok = cfg.role == Role::Responder && cfg.tx_mode == TxMode::Accumulate;
+    if (cfg.rx_burst == 0 || cfg.rx_burst > (big_rx_ok ? MAX_BURST : cfg.tx_burst))
+        fail(big_rx_ok ? fmt::format("--rx-burst {} must be in 1..{}", cfg.rx_burst, MAX_BURST)
+                       : fmt::format("--rx-burst {} must be in 1..tx-burst ({})", cfg.rx_burst, cfg.tx_burst));
     if (grp != 0 && cfg.pkts_per_wqe == 32 && cfg.tx_burst > MUSQ_EMPW_PKTS)
         warn(fmt::format("--tx-burst {} exceeds the mu_sq slot size ({}); one tx_burst call will span slots",
                          cfg.tx_burst, MUSQ_EMPW_PKTS));
@@ -457,7 +644,20 @@ bool validate_config(const AppConfig &cfg)
             fail(fmt::format("--tx-file needs --frame-size >= {} (room for the 8 B chunk index and data)", min_content + 4 + 9));
         if (!cfg.rx_record.empty() && cfg.tx_file.empty())
             fail("--rx-record needs --tx-file");
+        if (!cfg.src_ips.empty()) {
+            if (cfg.src_ips.size() != nw)
+                fail(fmt::format("--src-ips lists {} addresses for {} lcores", cfg.src_ips.size(), nw));
+            if (cfg.rx_steer == RxSteer::None)
+                fail("--src-ips gives every lcore its own source IP: not with --rx-steer none");
+            struct in_addr a;
+            for (const std::string &ip : cfg.src_ips)
+                if (inet_pton(AF_INET, ip.c_str(), &a) != 1)
+                    fail(fmt::format("--src-ips: bad IPv4 address '{}'", ip));
+        }
         if (cfg.esp_hw) {
+            if (cfg.esp_sa_per_lcore && cfg.rx_steer == RxSteer::None && nw > 1)
+                fail("--esp-sa lcore gives every lcore its own SA by its source IP: needs --rx-steer flow|rss or "
+                     "--src-ips (or --esp-sa port)");
             /* IPv4 + ESP hdr + IV + (UDP + request header, padded) + trailer + ICV */
             const unsigned min_hw = 14 + 20 + 16 + 28 + 16 + 4;
             if (cfg.traffic != TrafficKind::Esp)
@@ -502,6 +702,10 @@ std::vector<std::string> build_eal_argv(const AppConfig &cfg, const char *prog)
     std::vector<std::string> v;
     v.emplace_back(prog);
     std::string l = fmt::format("{}", cfg.main_lcore);
+    for (unsigned c : cfg.masters)
+        l += fmt::format(",{}", c);
+    for (unsigned c : cfg.tx_masters)
+        l += fmt::format(",{}", c);
     for (unsigned c : cfg.lcores)
         l += fmt::format(",{}", c);
     v.emplace_back("-l");
@@ -539,11 +743,29 @@ void print_resolved_config(const AppConfig &cfg, const std::vector<std::string> 
     for (unsigned c : cfg.lcores)
         lc += (lc.empty() ? "" : ",") + fmt::format("{}", c);
     printf("musq-testapp config:\n");
-    printf("  pci=%s devargs='%s' musq_group=%u doca_mode=%s doca_group=%u\n",
-           cfg.pci.c_str(), musq_devargs(cfg).c_str(), cfg.musq_group_eff(),
+    printf("  pci=%s devargs='%s' musq_group=%u musq_groups=%u doca_mode=%s doca_group=%u\n",
+           cfg.pci.c_str(), musq_devargs(cfg).c_str(), cfg.musq_group_eff(), cfg.musq_groups,
            doca_mode_name(cfg.doca_mode), cfg.doca_group);
+    if (cfg.musq_groups > 1)
+        printf("  groups: %u x %u queues (group g = RX/TX queues g*%u..); hash_probe=%s\n", cfg.musq_groups,
+               cfg.group_rx_queues(), cfg.group_rx_queues(),
+               cfg.hash_probe_src.empty() ? "off"
+                   : fmt::format("{}+{}:{}", cfg.hash_probe_src, cfg.hash_probe_n, cfg.hash_probe_dst).c_str());
     printf("  main_lcore=%u workers=[%s] role=%s pkts_per_wqe=%u rx_queues=%u tx_lanes=%u db_wqes=%u\n", cfg.main_lcore,
            lc.c_str(), role_name(cfg.role), cfg.pkts_per_wqe, cfg.rx_queues, cfg.tx_lanes, cfg.db_wqes);
+    if (cfg.dist()) {
+        std::string ms;
+        for (unsigned c : cfg.masters)
+            ms += (ms.empty() ? "" : ",") + fmt::format("{}", c);
+        std::string ts;
+        for (unsigned c : cfg.tx_masters)
+            ts += (ts.empty() ? "" : ",") + fmt::format("{}", c);
+        printf("  masters=[%s] tx_masters=[%s] (%u workers each) dist_order=%s dist_deal=%s dist_chunk=%u dist_ring=%u "
+               "dist_self=%u dist_self_backlog=%u dist_self_idle=%u%%\n",
+               ms.c_str(), ts.c_str(), cfg.workers_per_master(), dist_order_name(cfg.dist_order),
+               dist_deal_name(cfg.dist_deal), cfg.dist_chunk, cfg.dist_ring, cfg.dist_self, cfg.dist_self_backlog,
+               cfg.dist_self_idle);
+    }
     printf("  rx_burst=%u tx_burst=%u tx_mode=%s tx_drain_us=%lu rxd=%u txd=%u pool=%s promisc=%d\n",
            cfg.rx_burst, cfg.tx_burst, tx_mode_name(cfg.tx_mode),
            static_cast<unsigned long>(cfg.tx_drain_us), cfg.rxd, cfg.txd,
@@ -559,7 +781,10 @@ void print_resolved_config(const AppConfig &cfg, const std::vector<std::string> 
     if (cfg.role == Role::Requester && !cfg.tx_file.empty())
         printf("  tx_file='%s' rx_record='%s'\n", cfg.tx_file.c_str(), cfg.rx_record.c_str());
     if (cfg.role == Role::Requester && cfg.traffic == TrafficKind::Esp)
-        printf("  esp_encap=%s\n", cfg.esp_hw ? "hw (NIC IPsec packet offload)" : "sw");
+        printf("  esp_encap=%s esp_sa=%s esp_spi=0x%x%s sn_check=%s%s\n",
+               cfg.esp_hw ? "hw (NIC IPsec packet offload)" : "sw", cfg.esp_sa_per_lcore ? "lcore" : "port",
+               cfg.esp_spi, cfg.esp_sa_per_lcore ? "+idx" : "", cfg.esp_sn_check ? "on" : "off",
+               cfg.src_ips.empty() ? "" : " src_ips=explicit");
     if (cfg.role != Role::Requester)
         printf("  work=%s swap=%s\n", work_spec_to_string(cfg.work).c_str(), swap_mode_name(cfg.swap));
     printf("  duration=%.1fs warmup=%.1fs stats_interval=%.2fs xstats=%s csv='%s'\n",

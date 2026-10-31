@@ -31,8 +31,10 @@ bool g_flow_up = false;
 struct doca_flow_pipe *g_rx_pipe = nullptr;
 struct doca_flow_pipe *g_tx_root = nullptr;
 struct doca_flow_pipe *g_tx_encap = nullptr;
-struct doca_flow_pipe_entry *g_encap_entry = nullptr;
-uint32_t g_sa_id = 0;
+/* One SA and one encapsulation rule per source IP (--esp-sa lcore), or one for
+ * the whole port (--esp-sa port). */
+std::vector<struct doca_flow_pipe_entry *> g_encap_entries;
+std::vector<uint32_t> g_sa_ids;
 /* RSS queue lists must stay valid until their entries are processed. */
 std::vector<std::vector<uint16_t>> g_rss_queues;
 
@@ -97,7 +99,7 @@ int open_dev(const char *pci)
     return 0;
 }
 
-int start_flow(const AppState &st)
+int start_flow(const AppState &st, unsigned nb_sa)
 {
     struct doca_flow_cfg *fc = nullptr;
     ESP_CHECK(doca_flow_cfg_create(&fc), "flow cfg");
@@ -122,9 +124,9 @@ int start_flow(const AppState &st)
     if (r == DOCA_SUCCESS)
         r = doca_flow_port_cfg_set_dev(pc, g_dev);
     if (r == DOCA_SUCCESS)
-        r = doca_flow_port_cfg_set_nr_resources(pc, DOCA_FLOW_RESOURCE_IPSEC_SA, 1);
-    if (r == DOCA_SUCCESS) /* the counter of the egress rule */
-        r = doca_flow_port_cfg_set_nr_resources(pc, DOCA_FLOW_RESOURCE_COUNTER, 16);
+        r = doca_flow_port_cfg_set_nr_resources(pc, DOCA_FLOW_RESOURCE_IPSEC_SA, nb_sa);
+    if (r == DOCA_SUCCESS) /* the counters of the egress rules */
+        r = doca_flow_port_cfg_set_nr_resources(pc, DOCA_FLOW_RESOURCE_COUNTER, 16 + nb_sa);
     if (r == DOCA_SUCCESS)
         r = doca_flow_port_cfg_set_actions_mem_size(pc, 1u << 20);
     if (r == DOCA_SUCCESS)
@@ -202,12 +204,15 @@ int configure_sa(uint32_t id)
     return 0;
 }
 
-/* Egress: every IPv4 packet any lcore sends is ESP-encapsulated and encrypted
- * with the one SA, so the NIC's sequence number runs over all of them together,
- * in the order they leave. */
-int create_tx_pipes(const AppState &st)
+/* Egress: every IPv4 packet an lcore sends is ESP-encapsulated and encrypted.
+ * With per_lcore, the packet's source IP selects the SA (one per IP in `ips`,
+ * SPI spi_base + index), so every lcore's packets carry their own SPI and are
+ * numbered by their own NIC counter in the order they leave. Otherwise one SA
+ * takes every IPv4 packet and one sequence number runs over all lcores. */
+int create_tx_pipes(const AppState &st, const std::vector<rte_be32_t> &ips, bool per_lcore, uint32_t spi_base)
 {
-    /* The encapsulating pipe. SA id and header bytes are given with its entry. */
+    const unsigned nb_sa = per_lcore ? static_cast<unsigned>(ips.size()) : 1u;
+    /* The encapsulating pipe. SA id and header bytes are given per entry. */
     struct doca_flow_match match;
     struct doca_flow_actions actions, *actions_arr[1] = {&actions};
     struct doca_flow_monitor monitor;
@@ -217,7 +222,13 @@ int create_tx_pipes(const AppState &st)
     memset(&monitor, 0, sizeof(monitor));
     memset(&fwd, 0, sizeof(fwd));
     memset(&miss, 0, sizeof(miss));
-    match.parser_meta.outer_l3_type = DOCA_FLOW_L3_META_IPV4;
+    if (per_lcore) {
+        /* Entry i: outer IPv4 source = ips[i] (same template as the RX pipe). */
+        match.outer.l3_type = DOCA_FLOW_L3_TYPE_IP4;
+        match.outer.ip4.src_ip = 0xffffffff;
+    } else {
+        match.parser_meta.outer_l3_type = DOCA_FLOW_L3_META_IPV4;
+    }
     actions.has_crypto_encap = true;
     actions.crypto_encap.action_type = DOCA_FLOW_CRYPTO_REFORMAT_ENCAP;
     actions.crypto_encap.net_type = DOCA_FLOW_CRYPTO_HEADER_ESP_OVER_IPV4;
@@ -241,7 +252,7 @@ int create_tx_pipes(const AppState &st)
     if (r == DOCA_SUCCESS)
         r = doca_flow_pipe_cfg_set_domain(cfg, DOCA_FLOW_PIPE_DOMAIN_SECURE_EGRESS);
     if (r == DOCA_SUCCESS)
-        r = doca_flow_pipe_cfg_set_nr_entries(cfg, 1);
+        r = doca_flow_pipe_cfg_set_nr_entries(cfg, nb_sa);
     if (r == DOCA_SUCCESS)
         r = doca_flow_pipe_cfg_set_match(cfg, &match, nullptr);
     if (r == DOCA_SUCCESS)
@@ -285,20 +296,29 @@ int create_tx_pipes(const AppState &st)
                                              DOCA_FLOW_ENTRY_FLAGS_NO_WAIT, &status, nullptr),
               "add the egress root rule");
 
-    ESP_CHECK(doca_flow_port_shared_resource_get(g_port, DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA, &g_sa_id),
-              "allocate the IPsec SA");
-    if (configure_sa(g_sa_id) < 0)
-        return -1;
-    struct doca_flow_actions ea = actions;
-    /* SPI, then SN and IV, which the NIC fills in. */
-    memset(ea.crypto_encap.encap_data, 0, ESP_HW_HDR_LEN);
-    const rte_be32_t spi = rte_cpu_to_be_32(ESP_HW_SPI);
-    memcpy(ea.crypto_encap.encap_data, &spi, sizeof(spi));
-    ea.crypto.crypto_id = g_sa_id;
-    ESP_CHECK(doca_flow_pipe_basic_add_entry(0, g_tx_encap, &match, 0, &ea, nullptr, nullptr,
-                                             DOCA_FLOW_ENTRY_FLAGS_NO_WAIT, &status, &g_encap_entry),
-              "add the ESP encapsulation rule");
-    return process_entries(status, 2, "ESP encapsulation");
+    g_sa_ids.assign(nb_sa, 0);
+    g_encap_entries.assign(nb_sa, nullptr);
+    for (unsigned i = 0; i < nb_sa; i++) {
+        ESP_CHECK(doca_flow_port_shared_resource_get(g_port, DOCA_FLOW_SHARED_RESOURCE_IPSEC_SA, &g_sa_ids[i]),
+                  "allocate an IPsec SA");
+        if (configure_sa(g_sa_ids[i]) < 0)
+            return -1;
+        struct doca_flow_match em = {};
+        if (per_lcore) {
+            em.outer.l3_type = DOCA_FLOW_L3_TYPE_IP4;
+            em.outer.ip4.src_ip = ips[i];
+        }
+        struct doca_flow_actions ea = actions;
+        /* SPI, then SN and IV, which the NIC fills in. */
+        memset(ea.crypto_encap.encap_data, 0, ESP_HW_HDR_LEN);
+        const rte_be32_t spi = rte_cpu_to_be_32(spi_base + (per_lcore ? i : 0u));
+        memcpy(ea.crypto_encap.encap_data, &spi, sizeof(spi));
+        ea.crypto.crypto_id = g_sa_ids[i];
+        ESP_CHECK(doca_flow_pipe_basic_add_entry(0, g_tx_encap, per_lcore ? &em : &match, 0, &ea, nullptr, nullptr,
+                                                 DOCA_FLOW_ENTRY_FLAGS_NO_WAIT, &status, &g_encap_entries[i]),
+                  "add an ESP encapsulation rule");
+    }
+    return process_entries(status, static_cast<int>(1 + nb_sa), "ESP encapsulation");
 }
 
 } // namespace
@@ -321,12 +341,15 @@ int esp_hw_probe(const AppConfig &cfg)
     return 0;
 }
 
-int esp_hw_start(AppState &st, const rte_be32_t *src_ips)
+int esp_hw_start(AppState &st, const rte_be32_t *src_ips, uint32_t *spis)
 {
-    /* One RX rule per distinct source IP; the workers that share an IP have
-     * their responses spread over their queues. */
+    /* One RX rule (and, with --esp-sa lcore, one SA) per distinct source IP;
+     * the workers that share an IP share them, their responses spread over
+     * their queues. */
+    const bool per_lcore = st.cfg.esp_sa_per_lcore;
     std::vector<rte_be32_t> ips;
     std::vector<std::vector<uint16_t>> owners;
+    std::vector<size_t> ip_of_worker(st.nb_workers, 0);
     for (unsigned i = 0; i < st.nb_workers; i++) {
         size_t k = 0;
         while (k < ips.size() && ips[k] != src_ips[i])
@@ -336,31 +359,48 @@ int esp_hw_start(AppState &st, const rte_be32_t *src_ips)
             owners.emplace_back();
         }
         owners[k].push_back(st.workers[i].queue_id);
+        ip_of_worker[i] = k;
     }
-    if (start_flow(st) < 0)
+    const unsigned nb_sa = per_lcore ? static_cast<unsigned>(ips.size()) : 1u;
+    if (start_flow(st, nb_sa) < 0)
         return -1;
     if (create_rx_pipe(st, ips, owners) < 0)
         return -1;
-    if (create_tx_pipes(st) < 0)
+    if (create_tx_pipes(st, ips, per_lcore, st.cfg.esp_spi) < 0)
         return -1;
-    APP_LOG_INFO("esp-encap hw: all %u lcores -> one SA (id %u, SPI 0x%x, AES-GCM-128, ICV %u B): "
-                 "one sequence number stream over all of them, counted by the NIC",
-                 st.nb_workers, g_sa_id, ESP_HW_SPI, ESP_HW_ICV_LEN);
+    for (unsigned i = 0; i < st.nb_workers; i++)
+        spis[i] = st.cfg.esp_spi + (per_lcore ? static_cast<uint32_t>(ip_of_worker[i]) : 0u);
+    if (per_lcore)
+        APP_LOG_INFO("esp-encap hw: %u SA(s), one per source IP (AES-GCM-128, ICV %u B): each lcore's packets "
+                     "carry their own SPI and are numbered by their own NIC counter from 0",
+                     nb_sa, ESP_HW_ICV_LEN);
+    else
+        APP_LOG_INFO("esp-encap hw: all %u lcores -> one SA (id %u, SPI 0x%x, AES-GCM-128, ICV %u B): "
+                     "one sequence number stream over all of them, counted by the NIC",
+                     st.nb_workers, g_sa_ids[0], st.cfg.esp_spi, ESP_HW_ICV_LEN);
     for (size_t k = 0; k < ips.size(); k++) {
         char ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &ips[k], ip, sizeof(ip));
-        APP_LOG_INFO("esp-encap hw: responses to %s -> %zu RX queue(s) from %u", ip, owners[k].size(), owners[k][0]);
+        if (per_lcore)
+            APP_LOG_INFO("esp-encap hw: src %s -> SA %u, SPI 0x%x; responses -> %zu RX queue(s) from %u", ip,
+                         g_sa_ids[k], st.cfg.esp_spi + static_cast<uint32_t>(k), owners[k].size(), owners[k][0]);
+        else
+            APP_LOG_INFO("esp-encap hw: responses to %s -> %zu RX queue(s) from %u", ip, owners[k].size(),
+                         owners[k][0]);
     }
     return 0;
 }
 
 uint64_t esp_hw_encap_pkts()
 {
-    struct doca_flow_resource_query q;
-    memset(&q, 0, sizeof(q));
-    if (g_encap_entry == nullptr || doca_flow_resource_query_entry(g_encap_entry, &q) != DOCA_SUCCESS)
-        return 0;
-    return q.counter.total_pkts;
+    uint64_t total = 0;
+    for (struct doca_flow_pipe_entry *e : g_encap_entries) {
+        struct doca_flow_resource_query q;
+        memset(&q, 0, sizeof(q));
+        if (e != nullptr && doca_flow_resource_query_entry(e, &q) == DOCA_SUCCESS)
+            total += q.counter.total_pkts;
+    }
+    return total;
 }
 
 void esp_hw_stop()
@@ -372,7 +412,8 @@ void esp_hw_stop()
             APP_LOG_WARN("esp-encap hw: doca_flow_port_stop: %s", doca_error_get_descr(r));
         g_port = nullptr;
     }
-    g_encap_entry = nullptr;
+    g_encap_entries.clear();
+    g_sa_ids.clear();
     g_rx_pipe = g_tx_root = g_tx_encap = nullptr;
 }
 
@@ -396,7 +437,7 @@ int esp_hw_probe(const AppConfig &)
     APP_LOG_ERR("--esp-encap hw needs a build with -Desp_hw=enabled (system DOCA Flow)");
     return -1;
 }
-int esp_hw_start(AppState &, const rte_be32_t *) { return -1; }
+int esp_hw_start(AppState &, const rte_be32_t *, uint32_t *) { return -1; }
 uint64_t esp_hw_encap_pkts() { return 0; }
 void esp_hw_stop() {}
 void esp_hw_cleanup() {}

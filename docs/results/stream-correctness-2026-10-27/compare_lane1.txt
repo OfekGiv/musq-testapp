@@ -1,0 +1,8 @@
+/dev/shm/musq-file/run_lane1.w0: flow 1.1.1.1 (lcore 2), file 2944000000 B = 16000000 chunks of 184 B
+  sent 16000000 chunks (0 refused by the requester's TX and re-sent), recorded 15857554 arrivals (1 frames without a chunk, 0 beyond the buffer)
+  in order 15857553, reordered 0, gaps 1 (142446 chunks skipped), duplicates 0, bad index 0, corrupted 0, missing 142446
+  cmp: file and recorded data differ first at byte 188416 (chunk 1024)
+  first anomalies (arrival #, kind, chunk index, highest index before it):
+    #1024       gap        chunk 143470       highest before 1023
+  VERDICT: DIFFERENT
+cmp: /dev/shm/musq-file/in.bin /dev/shm/musq-file/run_lane1.w0.data differ: byte 188417, line 349

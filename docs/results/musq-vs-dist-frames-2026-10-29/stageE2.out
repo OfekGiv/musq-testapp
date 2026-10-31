@@ -1,0 +1,61 @@
+13:40:16 matrix start: modes bestw cores 2 works fixed:0 frame 128 offer 80.0 Mpps, out /homes/ofekdg/musq-testapp/docs/results/musq-vs-dist-frames-2026-10-29/sat-rxq2
+13:40:30   bestw c2 fixed:0    f128: offered 80.00 fwd 35.77 Mpps loss 55.3 % refused 0.000 % | master 100 % 67 cyc, lanes busy 22-24 % cyc 30-32, rx spread 50.0 %
+13:40:32 matrix done
+13:40:32 matrix start: modes bestw cores 2 works fixed:0 frame 256 offer 80.0 Mpps, out /homes/ofekdg/musq-testapp/docs/results/musq-vs-dist-frames-2026-10-29/sat-rxq2
+13:40:46   bestw c2 fixed:0    f256: offered 72.59 fwd 35.54 Mpps loss 51.0 % refused 0.000 % | master 100 % 67 cyc, lanes busy 22-23 % cyc 30-31, rx spread 50.0 %
+13:40:48 matrix done
+== bestw 2 cores fixed:0 128 B: saturation 35.77 Mpps, search from 34
+13:40:48 output /homes/ofekdg/musq-testapp/docs/results/musq-vs-dist-frames-2026-10-29/strict-rxq2, TRAFFIC=esp
+13:40:48 sweep start, RESP_MODE=bestw RESP_EXTRA='--rx-queues 2', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+13:40:48 case bestw fixed:0: 2 cores, 128 B
+13:41:02   c2 f128  34.00 Mpps ladder   -> FAIL RX   off 33.98 tx 29.86 refused 0.000% rxloss 12.145% cpu avg 47.3 max 100.0
+13:41:18   c2 f128  30.00 Mpps ladder   -> FAIL RX   off 29.99 tx 29.30 refused 0.000% rxloss 2.301% cpu avg 47.3 max 100.0
+13:41:35   c2 f128  26.00 Mpps ladder   -> PASS      off 25.99 tx 25.99 refused 0.000% rxloss 0.000% cpu avg 46.9 max 99.3
+13:41:51   c2 f128  28.00 Mpps bisect   -> PASS      off 27.99 tx 27.99 refused 0.000% rxloss 0.000% cpu avg 47.4 max 99.7
+13:42:07   c2 f128  29.00 Mpps bisect   -> PASS      off 28.99 tx 28.99 refused 0.000% rxloss 0.000% cpu avg 47.4 max 99.9
+13:42:23   c2 f128  29.50 Mpps bisect   -> FAIL RX   off 29.49 tx 29.01 refused 0.000% rxloss 1.630% cpu avg 47.1 max 100.0
+13:42:39   c2 f128  29.00 Mpps confirm  -> PASS      off 28.99 tx 28.99 refused 0.000% rxloss 0.000% cpu avg 47.4 max 99.9
+13:42:55   c2 f128  29.00 Mpps confirm  -> PASS      off 28.99 tx 28.99 refused 0.000% rxloss 0.000% cpu avg 47.5 max 99.9
+13:42:57 case done: bestw fixed:0 2 cores 128 B: max 29.0 Mpps (29.22 Gbps), cpu avg 47.44 max 99.89; next 29.5 fails RX (8 runs)
+13:42:57 sweep done
+== bestw 2 cores fixed:0 256 B: saturation 35.54 Mpps, search from 34
+13:42:57 output /homes/ofekdg/musq-testapp/docs/results/musq-vs-dist-frames-2026-10-29/strict-rxq2, TRAFFIC=esp
+13:42:57 sweep start, RESP_MODE=bestw RESP_EXTRA='--rx-queues 2', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+13:42:57 case bestw fixed:0: 2 cores, 256 B
+13:43:12   c2 f256  34.00 Mpps ladder   -> FAIL RX   off 33.99 tx 30.10 refused 0.000% rxloss 11.442% cpu avg 47.3 max 100.0
+13:43:28   c2 f256  30.00 Mpps ladder   -> FAIL RX   off 29.99 tx 29.91 refused 0.000% rxloss 0.261% cpu avg 47.8 max 99.9
+13:43:44   c2 f256  26.00 Mpps ladder   -> PASS      off 25.99 tx 25.99 refused 0.000% rxloss 0.000% cpu avg 47.5 max 98.8
+13:44:00   c2 f256  28.00 Mpps bisect   -> PASS      off 27.99 tx 27.99 refused 0.000% rxloss 0.000% cpu avg 47.4 max 99.6
+13:44:16   c2 f256  29.00 Mpps bisect   -> PASS      off 28.99 tx 28.99 refused 0.000% rxloss 0.000% cpu avg 47.8 max 99.7
+13:44:32   c2 f256  29.50 Mpps bisect   -> PASS      off 29.49 tx 29.49 refused 0.000% rxloss 0.000% cpu avg 47.8 max 99.8
+13:44:49   c2 f256  29.50 Mpps confirm  -> PASS      off 29.49 tx 29.49 refused 0.000% rxloss 0.000% cpu avg 47.5 max 99.8
+13:45:05   c2 f256  29.50 Mpps confirm  -> PASS      off 29.49 tx 29.49 refused 0.000% rxloss 0.000% cpu avg 47.8 max 99.8
+13:45:07 case done: bestw fixed:0 2 cores 256 B: max 29.5 Mpps (59.92 Gbps), cpu avg 47.72 max 99.84; next 30.0 fails RX (8 runs)
+13:45:07 sweep done
+== bestw 2 cores fixed:0 512 B: saturation 31.33 Mpps, search from 30
+13:45:07 output /homes/ofekdg/musq-testapp/docs/results/musq-vs-dist-frames-2026-10-29/strict-rxq2, TRAFFIC=esp
+13:45:07 sweep start, RESP_MODE=bestw RESP_EXTRA='--rx-queues 2', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+13:45:07 case bestw fixed:0: 2 cores, 512 B
+13:45:21   c2 f512  30.00 Mpps ladder   -> PASS      off 30.00 tx 30.00 refused 0.000% rxloss 0.000% cpu avg 47.8 max 100.0
+13:45:37   c2 f512  32.00 Mpps ladder   -> FAIL RX   off 32.00 tx 30.55 refused 0.000% rxloss 4.555% cpu avg 47.1 max 100.0
+13:45:53   c2 f512  31.00 Mpps bisect   -> FAIL RX   off 31.00 tx 30.46 refused 0.000% rxloss 1.734% cpu avg 47.4 max 100.0
+13:46:09   c2 f512  30.50 Mpps bisect   -> PASS      off 30.50 tx 30.50 refused 0.000% rxloss 0.000% cpu avg 47.8 max 100.0
+13:46:25   c2 f512  30.50 Mpps confirm  -> FAIL RX   off 30.50 tx 30.44 refused 0.000% rxloss 0.199% cpu avg 47.2 max 100.0
+13:46:41   c2 f512  30.00 Mpps confirm  -> PASS      off 30.00 tx 30.00 refused 0.000% rxloss 0.000% cpu avg 47.6 max 100.0
+13:46:58   c2 f512  30.00 Mpps confirm  -> PASS      off 30.00 tx 30.00 refused 0.000% rxloss 0.000% cpu avg 47.8 max 100.0
+13:47:00 case done: bestw fixed:0 2 cores 512 B: max 30.0 Mpps (122.4 Gbps), cpu avg 47.73 max 99.96; next 30.5 fails RX (7 runs)
+13:47:00 sweep done
+== bestw 2 cores fixed:0 1024 B: saturation 22.23 Mpps, search from 21
+13:47:00 output /homes/ofekdg/musq-testapp/docs/results/musq-vs-dist-frames-2026-10-29/strict-rxq2, TRAFFIC=esp
+13:47:00 sweep start, RESP_MODE=bestw RESP_EXTRA='--rx-queues 2', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+13:47:00 case bestw fixed:0: 2 cores, 1024 B
+13:47:14   c2 f1024  19.00 Mpps ladder   -> PASS      off 19.00 tx 19.00 refused 0.000% rxloss 0.000% cpu avg 46.5 max 96.8
+13:47:30   c2 f1024  21.00 Mpps ladder   -> PASS      off 20.99 tx 20.99 refused 0.000% rxloss 0.000% cpu avg 47.0 max 96.9
+13:47:46   c2 f1024  23.00 Mpps ladder   -> FAIL TX+RX off 23.00 tx 22.27 refused 1.277% rxloss 1.948% cpu avg 47.1 max 98.2
+13:48:03   c2 f1024  22.00 Mpps bisect   -> PASS      off 22.00 tx 22.00 refused 0.000% rxloss 0.000% cpu avg 46.8 max 97.7
+13:48:19   c2 f1024  22.50 Mpps bisect   -> FAIL TX   off 22.50 tx 22.36 refused 0.644% rxloss 0.002% cpu avg 47.0 max 98.0
+13:48:35   c2 f1024  22.25 Mpps bisect   -> FAIL TX   off 22.25 tx 22.24 refused 0.033% rxloss 0.000% cpu avg 47.2 max 97.9
+13:48:51   c2 f1024  22.00 Mpps confirm  -> PASS      off 22.00 tx 22.00 refused 0.000% rxloss 0.000% cpu avg 46.9 max 97.7
+13:49:07   c2 f1024  22.00 Mpps confirm  -> PASS      off 22.00 tx 22.00 refused 0.000% rxloss 0.000% cpu avg 47.0 max 97.5
+13:49:09 case done: bestw fixed:0 2 cores 1024 B: max 22.0 Mpps (179.84 Gbps), cpu avg 46.92 max 97.67; next 22.25 fails TX (8 runs)
+13:49:09 sweep done

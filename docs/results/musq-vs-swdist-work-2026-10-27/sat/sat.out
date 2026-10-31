@@ -1,0 +1,57 @@
+13:28:13 matrix start: modes musq,dist,plain cores 2,4,8 works fixed:0,fixed:50,fixed:100,fixed:200,fixed:400,fixed:800 frame 128 offer 80.0 Mpps, out /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/sat
+13:28:28   musq  c2 fixed:0    f128: offered 79.97 fwd 41.11 Mpps loss 48.6 % refused 35.419 % | lanes busy 100-100 % cyc 75-75, rx spread 0.2 %
+13:28:45   dist  c2 fixed:0    f128: offered 79.97 fwd 32.70 Mpps loss 59.1 % refused 0.000 % | master 100 % 73 cyc, lanes busy 32-32 % cyc 23-23, rx spread 0.0 %
+13:29:00   plain c2 fixed:0    f128: offered 79.97 fwd 65.06 Mpps loss 18.6 % refused 0.000 % | lanes busy 88-89 % cyc 65-65, rx spread 0.0 %
+13:29:16   musq  c4 fixed:0    f128: offered 79.97 fwd 42.56 Mpps loss 46.8 % refused 46.782 % | lanes busy 78-81 % cyc 94-96, rx spread 0.0 %
+13:29:32   dist  c4 fixed:0    f128: offered 79.97 fwd 34.44 Mpps loss 56.9 % refused 0.000 % | master 100 % 69 cyc, lanes busy 17-18 % cyc 35-38, rx spread 66.7 %
+13:29:47   plain c4 fixed:0    f128: offered 79.99 fwd 79.99 Mpps loss -0.0 % refused 0.000 % | lanes busy 66-69 % cyc 79-82, rx spread 0.0 %
+13:30:05   musq  c8 fixed:0    f128: offered 79.99 fwd 39.25 Mpps loss 50.9 % refused 50.931 % | lanes busy 43-45 % cyc 103-108, rx spread 0.0 %
+13:30:21   dist  c8 fixed:0    f128: offered 79.97 fwd 34.69 Mpps loss 56.6 % refused 0.000 % | master 100 % 69 cyc, lanes busy 7-8 % cyc 34-39, rx spread 85.7 %
+13:30:36   plain c8 fixed:0    f128: offered 80.00 fwd 80.01 Mpps loss -0.0 % refused 0.000 % | lanes busy 30-31 % cyc 72-74, rx spread 0.0 %
+13:30:52   musq  c2 fixed:50   f128: offered 80.00 fwd 17.65 Mpps loss 77.9 % refused 0.414 % | lanes busy 100-100 % cyc 269-271, rx spread 0.8 %
+13:31:08   dist  c2 fixed:50   f128: offered 80.02 fwd 11.78 Mpps loss 85.3 % refused 0.000 % | master 31 % 63 cyc, lanes busy 100-100 % cyc 203-203, rx spread 0.0 %
+13:31:23   plain c2 fixed:50   f128: offered 79.98 fwd 20.60 Mpps loss 74.2 % refused 0.000 % | lanes busy 100-100 % cyc 232-232, rx spread 0.0 %
+13:31:41   musq  c4 fixed:50   f128: offered 79.97 fwd 34.80 Mpps loss 56.5 % refused 0.147 % | lanes busy 100-100 % cyc 274-275, rx spread 0.3 %
+13:31:57   dist  c4 fixed:50   f128: offered 79.97 fwd 34.97 Mpps loss 56.3 % refused 0.000 % | master 100 % 68 cyc, lanes busy 100-100 % cyc 205-205, rx spread 66.7 %
+13:32:12   plain c4 fixed:50   f128: offered 79.97 fwd 40.95 Mpps loss 48.8 % refused 0.000 % | lanes busy 100-100 % cyc 234-234, rx spread 0.1 %
+13:32:30   musq  c8 fixed:50   f128: offered 80.00 fwd 36.28 Mpps loss 54.6 % refused 51.312 % | lanes busy 100-100 % cyc 256-258, rx spread 0.8 %
+13:32:46   dist  c8 fixed:50   f128: offered 79.97 fwd 34.75 Mpps loss 56.5 % refused 0.000 % | master 100 % 69 cyc, lanes busy 46-47 % cyc 220-225, rx spread 85.7 %
+13:33:01   plain c8 fixed:50   f128: offered 80.00 fwd 80.00 Mpps loss 0.0 % refused 0.000 % | lanes busy 100-100 % cyc 239-239, rx spread 0.0 %
+13:33:18   musq  c2 fixed:100  f128: offered 80.02 fwd 11.75 Mpps loss 85.3 % refused 0.263 % | lanes busy 100-100 % cyc 405-408, rx spread 0.5 %
+13:33:35   dist  c2 fixed:100  f128: offered 80.00 fwd 7.05 Mpps loss 91.2 % refused 0.000 % | master 19 % 64 cyc, lanes busy 100-100 % cyc 339-339, rx spread 0.0 %
+13:33:50   plain c2 fixed:100  f128: offered 80.01 fwd 12.99 Mpps loss 83.8 % refused 0.000 % | lanes busy 100-100 % cyc 369-369, rx spread 0.0 %
+13:34:06   musq  c4 fixed:100  f128: offered 79.97 fwd 23.24 Mpps loss 70.9 % refused 0.065 % | lanes busy 100-100 % cyc 411-412, rx spread 0.1 %
+13:34:22   dist  c4 fixed:100  f128: offered 79.96 fwd 21.15 Mpps loss 73.6 % refused 0.000 % | master 55 % 62 cyc, lanes busy 100-100 % cyc 339-339, rx spread 66.7 %
+13:34:37   plain c4 fixed:100  f128: offered 79.97 fwd 25.80 Mpps loss 67.7 % refused 0.000 % | lanes busy 100-100 % cyc 371-371, rx spread 0.2 %
+13:34:54   musq  c8 fixed:100  f128: offered 79.99 fwd 37.69 Mpps loss 52.9 % refused 20.614 % | lanes busy 100-100 % cyc 403-405, rx spread 0.6 %
+13:35:11   dist  c8 fixed:100  f128: offered 79.97 fwd 34.75 Mpps loss 56.5 % refused 0.000 % | master 100 % 69 cyc, lanes busy 73-74 % cyc 354-358, rx spread 85.7 %
+13:35:26   plain c8 fixed:100  f128: offered 79.99 fwd 51.37 Mpps loss 35.8 % refused 0.000 % | lanes busy 100-100 % cyc 372-374, rx spread 0.4 %
+13:35:43   musq  c2 fixed:200  f128: offered 80.02 fwd 7.82 Mpps loss 90.2 % refused 0.078 % | lanes busy 100-100 % cyc 612-613, rx spread 0.2 %
+13:35:59   dist  c2 fixed:200  f128: offered 80.02 fwd 4.37 Mpps loss 94.5 % refused 0.000 % | master 12 % 64 cyc, lanes busy 100-100 % cyc 548-548, rx spread 0.0 %
+13:36:15   plain c2 fixed:200  f128: offered 80.02 fwd 8.30 Mpps loss 89.6 % refused 0.000 % | lanes busy 100-100 % cyc 577-577, rx spread 0.0 %
+13:36:32   musq  c4 fixed:200  f128: offered 79.96 fwd 15.47 Mpps loss 80.7 % refused 0.102 % | lanes busy 100-100 % cyc 617-619, rx spread 0.3 %
+13:36:48   dist  c4 fixed:200  f128: offered 79.98 fwd 13.09 Mpps loss 83.6 % refused 0.000 % | master 34 % 63 cyc, lanes busy 100-100 % cyc 549-549, rx spread 66.7 %
+13:37:03   plain c4 fixed:200  f128: offered 79.97 fwd 16.54 Mpps loss 79.3 % refused 0.000 % | lanes busy 100-100 % cyc 579-579, rx spread 0.1 %
+13:37:21   musq  c8 fixed:200  f128: offered 79.98 fwd 31.08 Mpps loss 61.1 % refused 0.079 % | lanes busy 100-100 % cyc 615-616, rx spread 0.2 %
+13:37:37   dist  c8 fixed:200  f128: offered 79.97 fwd 30.56 Mpps loss 61.8 % refused 0.000 % | master 79 % 62 cyc, lanes busy 100-100 % cyc 548-548, rx spread 85.7 %
+13:37:52   plain c8 fixed:200  f128: offered 79.99 fwd 32.95 Mpps loss 58.8 % refused 0.000 % | lanes busy 100-100 % cyc 581-582, rx spread 0.2 %
+13:38:09   musq  c2 fixed:400  f128: offered 80.03 fwd 4.38 Mpps loss 94.5 % refused 0.116 % | lanes busy 100-100 % cyc 1091-1093, rx spread 0.2 %
+13:38:25   dist  c2 fixed:400  f128: offered 80.02 fwd 2.32 Mpps loss 97.1 % refused 0.000 % | master 6 % 64 cyc, lanes busy 100-100 % cyc 1031-1031, rx spread 0.0 %
+13:38:40   plain c2 fixed:400  f128: offered 80.03 fwd 4.53 Mpps loss 94.3 % refused 0.000 % | lanes busy 100-100 % cyc 1058-1059, rx spread 0.0 %
+13:38:58   musq  c4 fixed:400  f128: offered 80.00 fwd 8.72 Mpps loss 89.1 % refused 0.030 % | lanes busy 100-100 % cyc 1097-1098, rx spread 0.1 %
+13:39:14   dist  c4 fixed:400  f128: offered 79.96 fwd 6.96 Mpps loss 91.3 % refused 0.000 % | master 18 % 62 cyc, lanes busy 100-100 % cyc 1031-1031, rx spread 66.7 %
+13:39:29   plain c4 fixed:400  f128: offered 79.98 fwd 9.03 Mpps loss 88.7 % refused 0.000 % | lanes busy 100-100 % cyc 1060-1060, rx spread 0.0 %
+13:39:46   musq  c8 fixed:400  f128: offered 79.98 fwd 17.45 Mpps loss 78.2 % refused 0.059 % | lanes busy 100-100 % cyc 1096-1098, rx spread 0.1 %
+13:40:02   dist  c8 fixed:400  f128: offered 79.97 fwd 16.26 Mpps loss 79.7 % refused 0.000 % | master 42 % 62 cyc, lanes busy 100-100 % cyc 1030-1031, rx spread 85.7 %
+13:40:18   plain c8 fixed:400  f128: offered 79.98 fwd 17.99 Mpps loss 77.5 % refused 0.000 % | lanes busy 100-100 % cyc 1063-1066, rx spread 0.2 %
+13:40:35   musq  c2 fixed:800  f128: offered 80.03 fwd 2.32 Mpps loss 97.1 % refused 0.040 % | lanes busy 100-100 % cyc 2063-2064, rx spread 0.1 %
+13:40:51   dist  c2 fixed:800  f128: offered 80.02 fwd 1.20 Mpps loss 98.5 % refused 0.000 % | master 3 % 62 cyc, lanes busy 100-100 % cyc 1997-1997, rx spread 0.0 %
+13:41:06   plain c2 fixed:800  f128: offered 80.03 fwd 2.39 Mpps loss 97.0 % refused 0.000 % | lanes busy 100-100 % cyc 2003-2003, rx spread 0.0 %
+13:41:23   musq  c4 fixed:800  f128: offered 80.00 fwd 4.63 Mpps loss 94.2 % refused 0.001 % | lanes busy 100-100 % cyc 2069-2069, rx spread 0.0 %
+13:41:40   dist  c4 fixed:800  f128: offered 79.98 fwd 3.60 Mpps loss 95.5 % refused 0.000 % | master 9 % 62 cyc, lanes busy 100-100 % cyc 1996-1997, rx spread 66.7 %
+13:41:55   plain c4 fixed:800  f128: offered 79.96 fwd 4.77 Mpps loss 94.0 % refused 0.000 % | lanes busy 100-100 % cyc 2005-2005, rx spread 0.0 %
+13:42:12   musq  c8 fixed:800  f128: offered 79.98 fwd 9.25 Mpps loss 88.4 % refused 0.000 % | lanes busy 100-100 % cyc 2070-2070, rx spread 0.0 %
+13:42:28   dist  c8 fixed:800  f128: offered 79.97 fwd 8.39 Mpps loss 89.5 % refused 0.000 % | master 22 % 62 cyc, lanes busy 100-100 % cyc 1996-1997, rx spread 85.7 %
+13:42:44   plain c8 fixed:800  f128: offered 79.98 fwd 9.53 Mpps loss 88.1 % refused 0.000 % | lanes busy 100-100 % cyc 2009-2010, rx spread 0.1 %
+13:42:46 matrix done
+exit 0

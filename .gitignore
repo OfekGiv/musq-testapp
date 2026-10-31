@@ -5,3 +5,5 @@ compile_commands.json
 .cache/
 __pycache__/
 .runenv
+# raw per-lane epoch dumps of the result campaigns (tens of MB each)
+docs/results/*/lane-epoch/

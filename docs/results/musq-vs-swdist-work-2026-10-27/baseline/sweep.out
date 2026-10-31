@@ -1,0 +1,87 @@
+13:09:12 output /homes/ofekdg/musq-testapp/docs/results/musq-vs-swdist-work-2026-10-27/baseline, TRAFFIC=esp
+13:09:12 sweep start, RESP_MODE=musq RESP_EXTRA='', danger51 MHz cpu0,2..16: 2400 2400 2400 2400 2400 2400 2400 2400 2400 
+13:09:12 case 2 cores, 98 B
+13:09:27   c2 f98  42.00 Mpps ladder   -> PASS      off 42.00 tx 42.00 refused 0.002% rxloss 0.000% cpu avg 89.3 max 89.8
+13:09:43   c2 f98  44.00 Mpps ladder   -> FAIL TX   off 43.99 tx 43.91 refused 0.184% rxloss 0.000% cpu avg 92.1 max 92.4
+13:10:00   c2 f98  43.00 Mpps bisect   -> FAIL TX   off 42.99 tx 42.98 refused 0.012% rxloss 0.000% cpu avg 87.4 max 87.9
+13:10:17   c2 f98  42.50 Mpps bisect   -> PASS      off 42.50 tx 42.50 refused 0.007% rxloss 0.001% cpu avg 90.3 max 90.7
+13:10:34   c2 f98  42.50 Mpps confirm  -> PASS      off 42.49 tx 42.49 refused 0.009% rxloss 0.000% cpu avg 90.8 max 91.2
+13:10:51   c2 f98  42.50 Mpps confirm  -> PASS      off 42.48 tx 42.48 refused 0.004% rxloss 0.000% cpu avg 91.7 max 92.0
+13:10:53 case done: 2 cores 98 B: max 42.5 Mpps (33.31 Gbps), cpu avg 90.94 max 91.3; next 43.0 fails TX (6 runs)
+13:10:53 case 2 cores, 128 B
+13:11:08   c2 f128  42.00 Mpps ladder   -> PASS      off 41.99 tx 41.99 refused 0.006% rxloss 0.000% cpu avg 89.8 max 90.2
+13:11:26   c2 f128  44.00 Mpps ladder   -> FAIL TX   off 43.99 tx 43.73 refused 0.597% rxloss 0.000% cpu avg 92.4 max 92.8
+13:11:43   c2 f128  43.00 Mpps bisect   -> FAIL TX   off 42.98 tx 42.95 refused 0.070% rxloss 0.000% cpu avg 91.1 max 91.5
+13:12:00   c2 f128  42.50 Mpps bisect   -> FAIL TX   off 42.48 tx 42.47 refused 0.025% rxloss 0.000% cpu avg 90.9 max 91.2
+13:12:16   c2 f128  42.00 Mpps confirm  -> FAIL TX   off 42.00 tx 42.00 refused 0.011% rxloss 0.000% cpu avg 85.8 max 86.3
+13:12:32   c2 f128  41.50 Mpps confirm  -> PASS      off 41.48 tx 41.48 refused 0.003% rxloss 0.000% cpu avg 89.7 max 90.6
+13:12:49   c2 f128  41.50 Mpps confirm  -> PASS      off 41.49 tx 41.49 refused 0.001% rxloss 0.000% cpu avg 89.5 max 89.8
+13:13:06   c2 f128  41.50 Mpps confirm  -> PASS      off 41.48 tx 41.48 refused 0.003% rxloss 0.000% cpu avg 90.3 max 91.7
+13:13:08 case done: 2 cores 128 B: max 41.5 Mpps (41.82 Gbps), cpu avg 89.81 max 90.7; next 42.0 fails TX (8 runs)
+13:13:08 case 2 cores, 256 B
+13:13:23   c2 f256  42.00 Mpps ladder   -> FAIL TX   off 41.98 tx 39.50 refused 5.921% rxloss 0.000% cpu avg 90.3 max 90.6
+13:13:40   c2 f256  38.00 Mpps ladder   -> PASS      off 37.99 tx 37.99 refused 0.000% rxloss 0.000% cpu avg 84.3 max 84.7
+13:13:58   c2 f256  40.00 Mpps bisect   -> FAIL TX   off 39.99 tx 39.75 refused 0.591% rxloss 0.000% cpu avg 87.8 max 88.4
+13:14:15   c2 f256  39.00 Mpps bisect   -> FAIL TX   off 38.99 tx 38.95 refused 0.091% rxloss 0.000% cpu avg 86.8 max 87.2
+13:14:32   c2 f256  38.50 Mpps bisect   -> PASS      off 38.48 tx 38.48 refused 0.006% rxloss 0.000% cpu avg 79.4 max 79.5
+13:14:49   c2 f256  38.50 Mpps confirm  -> FAIL TX   off 38.48 tx 38.48 refused 0.018% rxloss 0.000% cpu avg 85.4 max 85.7
+13:15:07   c2 f256  38.00 Mpps confirm  -> PASS      off 37.99 tx 37.98 refused 0.002% rxloss 0.000% cpu avg 84.9 max 85.3
+13:15:24   c2 f256  38.00 Mpps confirm  -> PASS      off 37.99 tx 37.98 refused 0.003% rxloss 0.000% cpu avg 84.2 max 84.8
+13:15:26 case done: 2 cores 256 B: max 38.0 Mpps (77.19 Gbps), cpu avg 84.46 max 84.94; next 38.5 fails TX (8 runs)
+13:15:26 case 4 cores, 98 B
+13:15:41   c4 f98  45.00 Mpps ladder   -> PASS      off 44.98 tx 44.98 refused 0.001% rxloss 0.000% cpu avg 62.2 max 62.6
+13:15:57   c4 f98  47.00 Mpps ladder   -> FAIL TX   off 46.98 tx 46.40 refused 1.227% rxloss 0.000% cpu avg 63.5 max 64.0
+13:16:14   c4 f98  46.00 Mpps bisect   -> FAIL TX   off 45.98 tx 45.92 refused 0.127% rxloss 0.000% cpu avg 63.0 max 63.5
+13:16:30   c4 f98  45.50 Mpps bisect   -> FAIL TX   off 45.48 tx 45.47 refused 0.034% rxloss 0.000% cpu avg 65.7 max 66.1
+13:16:46   c4 f98  45.00 Mpps confirm  -> PASS      off 44.98 tx 44.98 refused 0.001% rxloss 0.000% cpu avg 62.5 max 62.9
+13:17:02   c4 f98  45.00 Mpps confirm  -> PASS      off 44.98 tx 44.98 refused 0.001% rxloss 0.000% cpu avg 61.4 max 62.0
+13:17:04 case done: 4 cores 98 B: max 45.0 Mpps (35.27 Gbps), cpu avg 62.02 max 62.52; next 45.5 fails TX (6 runs)
+13:17:04 case 4 cores, 128 B
+13:17:18   c4 f128  45.00 Mpps ladder   -> FAIL TX   off 44.98 tx 44.98 refused 0.020% rxloss 0.000% cpu avg 60.6 max 61.0
+13:17:34   c4 f128  41.00 Mpps ladder   -> PASS      off 40.99 tx 40.99 refused 0.000% rxloss 0.000% cpu avg 58.4 max 58.8
+13:17:51   c4 f128  43.00 Mpps bisect   -> PASS      off 42.98 tx 42.98 refused 0.000% rxloss 0.000% cpu avg 59.4 max 59.9
+13:18:08   c4 f128  44.00 Mpps bisect   -> PASS      off 43.98 tx 43.98 refused 0.000% rxloss 0.000% cpu avg 60.9 max 61.3
+13:18:25   c4 f128  44.50 Mpps bisect   -> PASS      off 44.48 tx 44.48 refused 0.001% rxloss 0.000% cpu avg 60.4 max 60.7
+13:18:43   c4 f128  44.50 Mpps confirm  -> PASS      off 44.48 tx 44.48 refused 0.002% rxloss 0.000% cpu avg 60.6 max 61.0
+13:19:00   c4 f128  44.50 Mpps confirm  -> PASS      off 44.48 tx 44.48 refused 0.002% rxloss 0.000% cpu avg 60.9 max 61.3
+13:19:02 case done: 4 cores 128 B: max 44.5 Mpps (44.84 Gbps), cpu avg 60.59 max 61.02; next 45.0 fails TX (7 runs)
+13:19:02 case 4 cores, 256 B
+13:19:17   c4 f256  45.00 Mpps ladder   -> FAIL TX   off 44.99 tx 40.59 refused 9.767% rxloss 0.000% cpu avg 53.2 max 53.9
+13:19:35   c4 f256  41.00 Mpps ladder   -> FAIL TX   off 40.99 tx 39.85 refused 2.774% rxloss 0.000% cpu avg 50.6 max 51.4
+13:19:52   c4 f256  37.00 Mpps ladder   -> PASS      off 36.99 tx 36.99 refused 0.000% rxloss 0.000% cpu avg 46.8 max 47.3
+13:20:08   c4 f256  39.00 Mpps bisect   -> PASS      off 38.99 tx 38.99 refused 0.000% rxloss 0.000% cpu avg 48.2 max 48.8
+13:20:25   c4 f256  40.00 Mpps bisect   -> FAIL TX   off 39.99 tx 39.88 refused 0.281% rxloss 0.000% cpu avg 49.9 max 50.5
+13:20:43   c4 f256  39.50 Mpps bisect   -> FAIL TX   off 39.49 tx 39.47 refused 0.035% rxloss 0.000% cpu avg 49.1 max 49.8
+13:21:00   c4 f256  39.00 Mpps confirm  -> FAIL TX   off 38.98 tx 38.98 refused 0.024% rxloss 0.000% cpu avg 48.9 max 49.6
+13:21:17   c4 f256  38.50 Mpps confirm  -> PASS      off 38.49 tx 38.49 refused 0.000% rxloss 0.000% cpu avg 47.9 max 48.5
+13:21:34   c4 f256  38.50 Mpps confirm  -> PASS      off 38.49 tx 38.49 refused 0.000% rxloss 0.000% cpu avg 47.9 max 48.5
+13:21:52   c4 f256  38.50 Mpps confirm  -> PASS      off 38.49 tx 38.49 refused 0.000% rxloss 0.000% cpu avg 47.6 max 48.0
+13:21:54 case done: 4 cores 256 B: max 38.5 Mpps (78.2 Gbps), cpu avg 47.82 max 48.37; next 39.0 fails TX (10 runs)
+13:21:54 case 8 cores, 98 B
+13:22:09   c8 f98  42.00 Mpps ladder   -> PASS      off 41.99 tx 41.99 refused 0.000% rxloss 0.000% cpu avg 46.2 max 46.8
+13:22:26   c8 f98  44.00 Mpps ladder   -> FAIL TX   off 43.99 tx 42.88 refused 2.523% rxloss 0.000% cpu avg 46.0 max 46.7
+13:22:43   c8 f98  43.00 Mpps bisect   -> FAIL TX   off 42.99 tx 42.98 refused 0.020% rxloss 0.000% cpu avg 45.7 max 46.4
+13:23:01   c8 f98  42.50 Mpps bisect   -> PASS      off 42.49 tx 42.49 refused 0.000% rxloss 0.000% cpu avg 45.6 max 46.3
+13:23:18   c8 f98  42.50 Mpps confirm  -> PASS      off 42.49 tx 42.49 refused 0.000% rxloss 0.000% cpu avg 45.9 max 46.6
+13:23:35   c8 f98  42.50 Mpps confirm  -> PASS      off 42.49 tx 42.49 refused 0.000% rxloss 0.000% cpu avg 45.9 max 46.6
+13:23:37 case done: 8 cores 98 B: max 42.5 Mpps (33.31 Gbps), cpu avg 45.79 max 46.51; next 43.0 fails TX (6 runs)
+13:23:37 case 8 cores, 128 B
+13:23:53   c8 f128  42.00 Mpps ladder   -> PASS      off 41.99 tx 41.99 refused 0.000% rxloss 0.000% cpu avg 45.5 max 46.2
+13:24:10   c8 f128  44.00 Mpps ladder   -> FAIL TX   off 43.99 tx 42.37 refused 3.679% rxloss 0.000% cpu avg 45.1 max 45.7
+13:24:27   c8 f128  43.00 Mpps bisect   -> FAIL TX   off 42.99 tx 42.77 refused 0.510% rxloss 0.000% cpu avg 44.9 max 45.6
+13:24:45   c8 f128  42.50 Mpps bisect   -> FAIL TX   off 42.49 tx 42.41 refused 0.195% rxloss 0.000% cpu avg 44.7 max 45.3
+13:25:02   c8 f128  42.00 Mpps confirm  -> PASS      off 41.99 tx 41.99 refused 0.000% rxloss 0.000% cpu avg 44.8 max 45.4
+13:25:19   c8 f128  42.00 Mpps confirm  -> PASS      off 41.99 tx 41.99 refused 0.000% rxloss 0.000% cpu avg 45.5 max 46.2
+13:25:21 case done: 8 cores 128 B: max 42.0 Mpps (42.33 Gbps), cpu avg 45.25 max 45.92; next 42.5 fails TX (6 runs)
+13:25:21 case 8 cores, 256 B
+13:25:35   c8 f256  42.00 Mpps ladder   -> FAIL TX   off 42.00 tx 34.67 refused 17.450% rxloss 0.000% cpu avg 34.9 max 35.5
+13:25:52   c8 f256  38.00 Mpps ladder   -> FAIL TX   off 38.00 tx 35.04 refused 7.797% rxloss 0.000% cpu avg 36.1 max 36.7
+13:26:09   c8 f256  34.00 Mpps ladder   -> PASS      off 34.00 tx 34.00 refused 0.000% rxloss 0.001% cpu avg 39.2 max 39.7
+13:26:27   c8 f256  36.00 Mpps bisect   -> PASS      off 35.99 tx 35.99 refused 0.000% rxloss 0.000% cpu avg 35.9 max 36.2
+13:26:44   c8 f256  37.00 Mpps bisect   -> FAIL TX   off 37.00 tx 35.46 refused 4.167% rxloss 0.000% cpu avg 36.4 max 37.0
+13:27:00   c8 f256  36.50 Mpps bisect   -> FAIL TX   off 36.50 tx 35.58 refused 2.527% rxloss 0.000% cpu avg 36.8 max 37.3
+13:27:18   c8 f256  36.00 Mpps confirm  -> PASS      off 36.00 tx 36.00 refused 0.000% rxloss 0.000% cpu avg 35.5 max 35.9
+13:27:35   c8 f256  36.00 Mpps confirm  -> PASS      off 36.00 tx 36.00 refused 0.000% rxloss 0.000% cpu avg 35.3 max 36.0
+13:27:37 case done: 8 cores 256 B: max 36.0 Mpps (73.14 Gbps), cpu avg 35.57 max 36.04; next 36.5 fails TX (8 runs)
+13:27:37 sweep done
+exit 0

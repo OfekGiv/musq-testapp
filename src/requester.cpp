@@ -60,6 +60,14 @@ struct RequestTracker {
     uint16_t next_sport = 0, next_dport = 0;
     uint32_t next_sn = 0;
     rte_be32_t src_ip = 0;            /* this lcore's source IP (responses come back to it) */
+    /* ESP SN order check (check_esp_sn): this lcore's SPI, the last sequence
+     * number seen, and whether the SNs are its own consecutive sequence (gaps
+     * then mean loss) or a share of the port-wide one (--esp-sa port). */
+    rte_be32_t spi = 0;
+    uint32_t last_sn = 0;
+    bool sn_seen = false;
+    bool sn_own_seq = false;
+    bool sn_check = false;
     struct rte_mempool *tx_pool = nullptr; /* prefill: TX-only pool; copy: the worker's RX pool */
     int32_t mbuf_data_off = -1;       /* prefill: data - mbuf, identical for every mbuf (-1 unknown, -2 varies) */
     /* --tx-file / --rx-record */
@@ -163,9 +171,15 @@ static int build_template(const AppState &st, WorkerCtx &w, RequestTracker &t)
     }
     /* One source IP per lcore: the responder swaps the addresses, so the
      * response's destination IP identifies the owner (flow steering) or at
-     * least varies the RSS hash (rss). */
-    if (cfg.rx_steer != RxSteer::None)
+     * least varies the RSS hash (rss). --src-ips names them explicitly. */
+    if (!cfg.src_ips.empty()) {
+        if (!parse_ipv4(cfg.src_ips[w.worker_idx], &src_ip)) {
+            APP_LOG_ERR("bad --src-ips entry '%s'", cfg.src_ips[w.worker_idx].c_str());
+            return -1;
+        }
+    } else if (cfg.rx_steer != RxSteer::None) {
         src_ip = rte_cpu_to_be_32(rte_be_to_cpu_32(src_ip) + w.worker_idx);
+    }
     t.src_ip = src_ip;
     /* --esp-encap hw: a plain UDP frame, sized so that it has the requested
      * size on the wire after the NIC's ESP encapsulation. */
@@ -194,8 +208,10 @@ static int build_template(const AppState &st, WorkerCtx &w, RequestTracker &t)
     } else {
         ip->next_proto_id = 50; /* ESP: SPI(4) + SN(4), then our header as the "payload" */
         auto *spi = reinterpret_cast<uint32_t *>(t.tmpl + t.l4_off);
-        spi[0] = rte_cpu_to_be_32(0x00001000);
+        /* The same SPI scheme as the NIC's encapsulation: one per lcore by default. */
+        spi[0] = rte_cpu_to_be_32(cfg.esp_spi + (cfg.esp_sa_per_lcore ? w.worker_idx : 0u));
         spi[1] = 0;
+        t.spi = spi[0];
         t.hdr_off = t.l4_off + 8;
     }
     ip->hdr_checksum = 0;
@@ -400,6 +416,14 @@ int requester_init(AppState &st)
     g_hz = st.tsc_hz;
     g_service.init(st.cfg.service_time);
     std::vector<rte_be32_t> src_ips;
+    std::vector<uint32_t> spis(st.nb_workers, 0);
+    /* The SN check needs each lcore's responses on its own queue: the flow
+     * rule (sw encap) or the per-source-IP DOCA rule (hw encap) gives that. */
+    const bool sn_check = st.cfg.esp_sn_check && st.cfg.traffic == TrafficKind::Esp &&
+                          (st.cfg.esp_hw ? st.cfg.rx_steer != RxSteer::None || st.nb_workers == 1
+                                         : st.cfg.rx_steer == RxSteer::Flow);
+    if (st.cfg.esp_sn_check && st.cfg.traffic == TrafficKind::Esp && !sn_check)
+        APP_LOG_WARN("ESP SN order check off: it needs each lcore's responses on its own queue (--rx-steer flow)");
     for (unsigned i = 0; i < st.nb_workers; i++) {
         WorkerCtx &w = st.workers[i];
         auto *t = static_cast<RequestTracker *>(rte_zmalloc("req_tracker", sizeof(RequestTracker), RTE_CACHE_LINE_SIZE));
@@ -435,6 +459,9 @@ int requester_init(AppState &st)
             return -1;
         }
         w.tracker = t;
+        t->sn_check = sn_check;
+        /* Gaps are loss only when the lcore owns its SN sequence. */
+        t->sn_own_seq = !st.cfg.esp_hw || st.cfg.esp_sa_per_lcore;
         char ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &t->src_ip, ip, sizeof(ip));
         if (st.cfg.esp_hw) {
@@ -454,8 +481,16 @@ int requester_init(AppState &st)
         if (st.cfg.rx_steer == RxSteer::Flow && install_steer_flow(w, *t) < 0)
             return -1;
     }
-    if (st.cfg.esp_hw && esp_hw_start(st, src_ips.data()) < 0)
-        return -1;
+    if (st.cfg.esp_hw) {
+        if (esp_hw_start(st, src_ips.data(), spis.data()) < 0)
+            return -1;
+        /* The SPI the NIC writes into this lcore's packets (its SA's). */
+        for (unsigned i = 0; i < st.nb_workers; i++)
+            st.workers[i].tracker->spi = rte_cpu_to_be_32(spis[i]);
+    }
+    if (sn_check)
+        APP_LOG_INFO("ESP SN order check on: each lcore expects its responses with increasing sequence numbers%s",
+                     st.cfg.esp_hw && !st.cfg.esp_sa_per_lcore ? " (one SA for all lcores: gaps are not counted)" : "");
     return 0;
 }
 
@@ -534,6 +569,47 @@ static inline const request_header *response_header(const struct rte_mbuf *m, Tr
         return nullptr;
     const auto *rh = reinterpret_cast<const request_header *>(rte_pktmbuf_mtod_offset(m, const uint8_t *, off));
     return rh->magic_number == RESPONSE_MAGIC ? rh : nullptr;
+}
+
+/* ESP SN order check: the SPI and sequence number of an ESP packet are clear
+ * text, also when the NIC encrypted the payload, so a response's SN tells
+ * whether the DUT kept this lcore's packets in order. With one SA per lcore
+ * the NIC numbers its packets 0, 1, 2, .. in the order they leave, so a
+ * response SN not above the previous one is a reorder and a jump is loss.
+ * Two compares per packet. */
+static inline void check_esp_sn(RequestTracker &t, WorkerStats &s, const struct rte_mbuf *m)
+{
+    const auto *eth = rte_pktmbuf_mtod(m, const struct rte_ether_hdr *);
+    if (eth->ether_type != rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4))
+        return;
+    const auto *ip = reinterpret_cast<const struct rte_ipv4_hdr *>(eth + 1);
+    if (ip->next_proto_id != 50)
+        return;
+    const unsigned off = sizeof(*eth) + ((ip->version_ihl & 0x0f) << 2);
+    if (m->data_len < off + 8)
+        return;
+    const auto *esp = rte_pktmbuf_mtod_offset(m, const rte_be32_t *, off);
+    if (esp[0] != t.spi) {
+        s.spi_foreign++;
+        return;
+    }
+    const uint32_t sn = rte_be_to_cpu_32(esp[1]);
+    if (!t.sn_seen) {
+        t.sn_seen = true;
+        t.last_sn = sn;
+        return;
+    }
+    const int32_t d = static_cast<int32_t>(sn - t.last_sn); /* wrap-safe */
+    if (d <= 0) {
+        s.sn_reorder++;
+        const uint64_t back = static_cast<uint64_t>(-static_cast<int64_t>(d));
+        if (back > s.sn_max_back)
+            s.sn_max_back = back;
+        return;
+    }
+    if (d > 1 && t.sn_own_seq)
+        s.sn_gap_pkts += static_cast<uint64_t>(d - 1);
+    t.last_sn = sn;
 }
 
 static inline void complete(AppState *st, WorkerCtx *rx_w, uint64_t id, uint64_t now)
@@ -707,6 +783,7 @@ int requester_loop(void *arg)
     const uint64_t rps = cfg.rps;
     const bool copy_template = cfg.tx_fill == TxFill::Copy;
     const bool record = t.rec_data != nullptr;
+    const bool sn_check = t.sn_check;
     struct rte_mempool *const tx_pool = t.tx_pool;
     struct rte_mbuf *pkts[MAX_BURST];
 
@@ -735,6 +812,8 @@ int requester_loop(void *arg)
                 }
                 if (record)
                     record_chunk(t, s, pkts[i], kind);
+                if (sn_check)
+                    check_esp_sn(t, s, pkts[i]);
                 const request_header *rh = response_header(pkts[i], kind);
                 if (rh)
                     complete(st, w, rh->request_id, now);

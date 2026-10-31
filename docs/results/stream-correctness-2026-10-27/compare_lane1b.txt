@@ -1,0 +1,6 @@
+/dev/shm/musq-file/run_lane1b.w0: flow 1.1.1.1 (lcore 2), file 2944000000 B = 16000000 chunks of 184 B
+  sent 16000000 chunks (0 refused by the requester's TX and re-sent), recorded 16000000 arrivals (0 frames without a chunk, 0 beyond the buffer)
+  in order 16000000, reordered 0, gaps 0 (0 chunks skipped), duplicates 0, bad index 0, corrupted 0, missing 0
+  cmp: recorded data is byte-identical to the file
+  VERDICT: IDENTICAL
+cmp: equal

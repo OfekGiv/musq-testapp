@@ -53,9 +53,23 @@ struct PmdBurstStats {
 using burst_stats_fn = int (*)(uint16_t, uint16_t, PmdBurstStats *, size_t);
 static burst_stats_fn g_burst_stats = nullptr;
 
+/* Mirror of struct rte_pmd_mlx5_txq_mu_group (prom-dpdk rte_pmd_mlx5.h): a TX
+ * queue's mu_sq group and lane, and the port's group count. */
+struct PmdMuGroup {
+    uint16_t nb_groups;
+    uint16_t group;
+    uint16_t lane;
+    uint16_t group_size;
+    uint32_t master_sqn;
+    uint32_t sqn;
+};
+using mu_group_fn = int (*)(uint16_t, uint16_t, PmdMuGroup *, size_t);
+static mu_group_fn g_mu_group = nullptr;
+
 void lane_pmd_init()
 {
     g_burst_stats = reinterpret_cast<burst_stats_fn>(dlsym(RTLD_DEFAULT, "rte_pmd_mlx5_txq_burst_stats"));
+    g_mu_group = reinterpret_cast<mu_group_fn>(dlsym(RTLD_DEFAULT, "rte_pmd_mlx5_txq_mu_group"));
 }
 
 bool lane_doorbells(uint16_t port, uint16_t queue, uint64_t *doorbells)
@@ -76,7 +90,8 @@ static lane_status_fn resolve_lane_status()
 
 int lane_slot_check(const AppState &st)
 {
-    if (st.cfg.musq_group_eff() == 0)
+    const unsigned grp = st.cfg.musq_group_eff();
+    if (grp == 0)
         return 0;
     const lane_status_fn fn = resolve_lane_status();
     PmdLaneStatus ls = {};
@@ -92,6 +107,55 @@ int lane_slot_check(const AppState &st)
                     "start through scripts/run.sh, which picks the matching binary",
                     st.cfg.pkts_per_wqe, ls.slot_max_pkts);
         return -1;
+    }
+    /* Every group's master must see the configured group size (one queue
+     * driving a whole group alone excepted: there the port has one queue). */
+    for (unsigned g = 0; g < st.cfg.musq_groups; g++) {
+        const uint16_t master = static_cast<uint16_t>(g * grp);
+        if (master >= st.cfg.nb_tx_queues())
+            break;
+        if (fn(st.port_id, master, &ls, sizeof(ls)) != 0)
+            continue;
+        if ((1u << ls.log_group_size) != grp) {
+            APP_LOG_ERR("mu_sq group %u (TX queue %u): the PMD runs groups of %u lanes, --musq-group %u", g, master,
+                        1u << ls.log_group_size, grp);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int lane_group_check(const AppState &st)
+{
+    const AppConfig &cfg = st.cfg;
+    const unsigned grp = cfg.musq_group_eff();
+    if (grp == 0)
+        return 0;
+    PmdMuGroup g = {};
+    if (g_mu_group == nullptr || g_mu_group(st.port_id, 0, &g, sizeof(g)) != 0) {
+        if (cfg.musq_groups > 1) {
+            /* The lane status is in every prom-dpdk PMD: if it is visible and
+             * the group call is not, the installed PMD predates the groups. */
+            if (resolve_lane_status() != nullptr) {
+                APP_LOG_ERR("--musq-groups %u, but this mlx5 PMD has no rte_pmd_mlx5_txq_mu_group: rebuild and "
+                            "install prom-dpdk with multi-group mu_sq (README, Build)", cfg.musq_groups);
+                return -1;
+            }
+            APP_LOG_WARN("cannot verify the PMD's mu_sq group count in this build (--musq-groups %u); check the "
+                         "PMD's \"mu_sq group\" lines", cfg.musq_groups);
+        }
+        return 0;
+    }
+    if (g.nb_groups != cfg.musq_groups) {
+        APP_LOG_ERR("the mlx5 PMD formed %u mu_sq group(s), --musq-groups %u", g.nb_groups, cfg.musq_groups);
+        return -1;
+    }
+    for (unsigned k = 0; k < cfg.musq_groups; k++) {
+        const uint16_t master = static_cast<uint16_t>(k * grp);
+        if (master >= cfg.nb_tx_queues() || g_mu_group(st.port_id, master, &g, sizeof(g)) != 0)
+            break;
+        APP_LOG_INFO("mu_sq group %u: TX queues %u..%u, %u lanes, SQN 0x%x..0x%x", k, master,
+                     master + g.group_size - 1, g.group_size, g.master_sqn, g.master_sqn + g.group_size - 1);
     }
     return 0;
 }
@@ -225,19 +289,23 @@ void lane_epoch_dump(AppState &st)
         APP_LOG_ERR("cannot open %s for writing", cfg.lane_epoch_out.c_str());
         return;
     }
+    /* TX queues per mu_sq group: the "group" column is lane / this. */
+    const unsigned per_group = cfg.nb_tx_queues() / cfg.musq_groups;
     fprintf(f, "# epoch_us=%" PRIu64 " tsc_hz=%" PRIu64 " lanes=%u wq=%d slot_wqebbs=%u slot_pkts=%u wqe_s=%u"
-               " cq=%d cqe_s=%u cq_step=%u db=%d db_wqes=%u\n",
+               " cq=%d cqe_s=%u cq_step=%u db=%d db_wqes=%u groups=%u grp_size=%u\n",
             cfg.lane_epoch_us, st.tsc_hz, nb_lanes, g_lane_status != nullptr ? 1 : 0,
             g_slot_wqebbs ? g_slot_wqebbs : 9u, cfg.pkts_per_wqe, g_wqe_s,
             g_cq_status != nullptr ? 1 : 0, g_cqe_s, g_cq_step,
-            g_burst_stats != nullptr ? 1 : 0, cfg.db_wqes);
+            g_burst_stats != nullptr ? 1 : 0, cfg.db_wqes, cfg.musq_groups, per_group);
     fprintf(f, "lane,lcore,epoch,t_us,wqe_ci,wqe_pi,wqe_free,elts_free,slots,slot_pkts,slots_full,rx_pkts,tx_pkts,tx_drops,"
-               "cycles_busy,cycles_idle,busy_pct,cq_ci,cq_pi,cq_free,cq_done,doorbells\n");
+               "cycles_busy,cycles_idle,busy_pct,cq_ci,cq_pi,cq_free,cq_done,doorbells,group\n");
     const uint64_t e0 = t0 / epoch_tsc;
     for (unsigned i = 0; i < st.nb_workers * st.cfg.tx_lanes; i++) {
-        /* One log per TX queue; the "lane" column is the TX queue index. */
+        /* One log per TX queue; the "lane" column is the TX queue index, the
+         * "group" column (last, added at dump time) its mu_sq group. */
         const WorkerCtx &w = st.workers[i / st.cfg.tx_lanes];
         const unsigned lane = w.txbuf[i % st.cfg.tx_lanes].queue_id;
+        const unsigned group = per_group ? lane / per_group : 0;
         const LaneEpochLog *log = w.epoch_log[i % st.cfg.tx_lanes];
         if (log == nullptr)
             continue;
@@ -250,12 +318,12 @@ void lane_epoch_dump(AppState &st)
             prev_busy = r.cycles_busy;
             prev_idle = r.cycles_idle;
             fprintf(f, "%u,%u,%" PRIu64 ",%.1f,%u,%u,%u,%u,%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 ",%" PRIu64
-                       ",%" PRIu64 ",%" PRIu64 ",%.1f,%u,%u,%u,%u,%" PRIu64 "\n",
+                       ",%" PRIu64 ",%" PRIu64 ",%.1f,%u,%u,%u,%u,%" PRIu64 ",%u\n",
                     lane, w.lcore_id, r.tsc / epoch_tsc - e0,
                     static_cast<double>(r.tsc - t0) * 1e6 / static_cast<double>(st.tsc_hz),
                     r.wqe_ci, r.wqe_pi, r.wqe_free, r.elts_free, r.slots, r.slot_pkts, r.slots_full,
                     r.rx_pkts, r.tx_pkts, r.tx_drops, r.cycles_busy, r.cycles_idle, busy_pct,
-                    r.cq_ci, r.cq_pi, r.cq_free, r.cq_done, r.doorbells);
+                    r.cq_ci, r.cq_pi, r.cq_free, r.cq_done, r.doorbells, group);
         }
         if (log->missed)
             APP_LOG_WARN("lcore %u: lane epoch log full, %lu later samples not stored (raise --lane-epoch-max)",
